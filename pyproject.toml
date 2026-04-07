@@ -3,10 +3,10 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "multi-agent-research-app"
+name = "synapse-ai"
 version = "1.0.0"
-description = "Self-correcting multi-agent research application"
-authors = [{name = "Research App Team", email = "team@example.com"}]
+description = "Self-correcting multi-agent research system"
+authors = [{name = "Tarun", email = "tarun@example.com"}]
 license = {text = "MIT"}
 readme = "README.md"
 requires-python = ">=3.8"
@@ -44,9 +44,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/example/multi-agent-research-app"
-Repository = "https://github.com/example/multi-agent-research-app"
-Documentation = "https://github.com/example/multi-agent-research-app#readme"
+Homepage = "https://github.com/tarun/SynapseAI"
+Repository = "https://github.com/tarun/SynapseAI"
+Documentation = "https://github.com/tarun/SynapseAI#readme"
 
 [tool.setuptools.packages.find]
 include = ["app*", "tests*"]

@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Weaver | Deep Research Agent",
+  title: "SynapseAI | Deep Research Agent",
   description: "Autonomous research agent powered by AI",
 };
 

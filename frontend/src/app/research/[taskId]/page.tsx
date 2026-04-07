@@ -62,9 +62,9 @@ export default function ResearchPage() {
                 <div className="flex items-center justify-between border-b border-white/10 pb-4">
                     <a href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
                         <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center font-bold text-white">
-                            W
+                            S
                         </div>
-                        <span className="font-semibold text-xl tracking-tight text-white">Weaver</span>
+                        <span className="font-semibold text-xl tracking-tight text-white">SynapseAI</span>
                     </a>
                     <div className="text-sm text-gray-400 font-mono">
                         Task: {taskId.slice(0, 8)}...

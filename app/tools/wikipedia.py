@@ -25,7 +25,7 @@ class WikipediaTool:
     _RATE_LIMIT_DELAY = 1.0 # Wikipedia requests polite 1 request/sec for bots
     _last_request_time = 0.0
     
-    def __init__(self, user_agent: str = "WeaverResearchBot/1.0 (https://github.com/yugborana/Weaver; research-tool@localhost)"):
+    def __init__(self, user_agent: str = "SynapseAIBot/1.0 (research-tool@localhost)"):
         self.base_url = "https://en.wikipedia.org/w/api.php"
         self.user_agent = user_agent
         self.session: Optional[aiohttp.ClientSession] = None

@@ -12,8 +12,8 @@ export default function Home() {
       {/* Navbar Placeholder (for visual balance) */}
       <nav className="relative z-10 w-full max-w-7xl mx-auto p-6 flex justify-between items-center text-sm">
         <div className="flex items-center gap-2 font-semibold tracking-tight text-gray-200">
-          <div className="h-6 w-6 bg-white rounded-full flex items-center justify-center text-black font-bold text-xs">W</div>
-          Weaver
+          <div className="h-6 w-6 bg-white rounded-full flex items-center justify-center text-black font-bold text-xs">S</div>
+          SynapseAI
         </div>
         <div className="flex items-center gap-4">
           <a href="/evals" className="text-gray-400 hover:text-white transition-colors">Evaluations</a>
@@ -31,7 +31,7 @@ export default function Home() {
           </div>
 
           <h1 className="text-5xl md:text-7xl lg:text-8xl font-bold tracking-tighter bg-clip-text text-transparent bg-gradient-to-b from-white via-white/90 to-white/50 animate-in fade-in zoom-in duration-1000 delay-100 pb-2">
-            Knowledge, <br /> Weaved Instantly.
+            Knowledge, <br /> Synthesized Instantly.
           </h1>
 
           <p className="text-lg md:text-xl text-gray-400 max-w-2xl mx-auto leading-relaxed animate-in fade-in slide-in-from-bottom-4 duration-1000 delay-200">
