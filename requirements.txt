@@ -1,0 +1,10 @@
+# Core dependencies with versions for production
+pydantic
+pydantic-settings
+supabase
+groq
+python-dotenv
+fastapi
+uvicorn[standard]
+httpx
+aiohttp
