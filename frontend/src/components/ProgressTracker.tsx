@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { getWebSocketUrl, TaskStatusResponse } from "@/lib/api";
+import { getWebSocketUrl, getTaskStatus, TaskStatusResponse } from "@/lib/api";
 import { CheckCircle2, Circle, Loader2, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/api";
 
@@ -91,11 +91,8 @@ export function ProgressTracker({ taskId, initialStatus }: ProgressTrackerProps)
     useEffect(() => {
         const interval = setInterval(async () => {
             try {
-                const res = await fetch(`http://localhost:8000/research/${taskId}/status`);
-                if (res.ok) {
-                    const data = await res.json();
-                    setCurrentStage(data.current_stage);
-                }
+                const data = await getTaskStatus(taskId);
+                setCurrentStage(data.current_stage);
             } catch (e) {
                 // ignore errors
             }
