@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "synapse-ai"
 version = "1.0.0"
 description = "Self-correcting multi-agent research system"
-authors = [{name = "Tarun", email = "tarun@example.com"}]
+authors = [{name = "tarunkauxhik", email = "tarunkauxhik@example.com"}]
 license = {text = "MIT"}
 readme = "README.md"
 requires-python = ">=3.8"
@@ -44,9 +44,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/tarun/SynapseAI"
-Repository = "https://github.com/tarun/SynapseAI"
-Documentation = "https://github.com/tarun/SynapseAI#readme"
+Homepage = "https://github.com/tarunkauxhik/SynapseAI"
+Repository = "https://github.com/tarunkauxhik/SynapseAI"
+Documentation = "https://github.com/tarunkauxhik/SynapseAI#readme"
 
 [tool.setuptools.packages.find]
 include = ["app*", "tests*"]
