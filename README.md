@@ -18,7 +18,7 @@ flowchart TB
     subgraph Backend["Backend (FastAPI, Render)"]
         API[API Routes]
         WS[WebSocket Manager]
-        Coord[Coordinator / Orchestrator]
+        Coord[Orchestrator]
     end
 
     subgraph Agents["Agents (app/agents)"]
@@ -63,8 +63,7 @@ flowchart TB
     Researcher --> Groq
     Critic --> Groq
     Reviser --> Groq
-    Reviser --> ReportViewer
-    Evals --> Coord
+    Adapter --> Coord
     Runner --> Grader
     Runner --> Adapter
 ```
