@@ -5,35 +5,68 @@ A self-correcting multi-agent research system that produces structured, cited re
 Three specialized agents (Researcher, Critic, Reviser) collaborate in a feedback loop: the Researcher plans search strategies and drafts reports from live web data, the Critic scores the draft and identifies weaknesses, and the Reviser rewrites based on feedback. The cycle continues until a quality threshold is met.
 
 ---
-
 ## Architecture
 
-```
-User Query
-    │
-    ▼
-┌──────────────────┐      ┌──────────────────┐
-│  Next.js Frontend │─────▶│  FastAPI Backend  │
-│  (Vercel)         │◀─────│  (Render/Docker)  │
-└──────────────────┘  WS   └────────┬─────────┘
-                                    │
-                    ┌───────────────┼───────────────┐
-                    ▼               ▼               ▼
-             ┌───────────┐  ┌───────────┐  ┌───────────┐
-             │ Researcher │  │   Critic  │  │  Reviser  │
-             │  Agent     │  │   Agent   │  │   Agent   │
-             └─────┬─────┘  └───────────┘  └───────────┘
-                   │
-          ┌────────┼────────┐
-          ▼        ▼        ▼
-       Tavily  DuckDuckGo Wikipedia
-       (Search)  (Fallback) (Knowledge)
-                   │
-                   ▼
-            ┌─────────────┐
-            │   Supabase   │
-            │  (PostgreSQL) │
-            └─────────────┘
+```mermaid
+flowchart TB
+    subgraph Frontend["Frontend (Next.js, Vercel)"]
+        ResearchForm[ResearchForm]
+        ProgressTracker[ProgressTracker]
+        ReportViewer[ReportViewer]
+    end
+
+    subgraph Backend["Backend (FastAPI, Render)"]
+        API[API Routes]
+        WS[WebSocket Manager]
+        Coord[Coordinator / Orchestrator]
+    end
+
+    subgraph Agents["Agents (app/agents)"]
+        Researcher[Researcher Agent]
+        Critic[Critic Agent]
+        Reviser[Reviser Agent]
+    end
+
+    subgraph Tools["Tools (app/tools)"]
+        Tavily[Tavily\nPrimary]
+        DDG[DuckDuckGo\nFallback]
+        Wiki[Wikipedia\nKnowledge]
+    end
+
+    subgraph LLM["LLM (app/llm)"]
+        Groq[Groq Client\nLlama 3.3 70B]
+    end
+
+    subgraph DB["Supabase (PostgreSQL)"]
+        Tasks[(research_tasks)]
+        Logs[(task_logs)]
+    end
+
+    subgraph Evals["Evals (evals/)"]
+        Runner[EvalRunner]
+        Grader[UnifiedGrader]
+        Adapter[AgentAdapter]
+    end
+
+    ResearchForm --> API
+    ProgressTracker --> WS
+    API --> Coord
+    WS --> Coord
+    Coord --> Researcher
+    Coord --> Critic
+    Coord --> Reviser
+    Coord --> Tasks
+    Coord --> Logs
+    Researcher --> Tavily
+    Researcher --> DDG
+    Researcher --> Wiki
+    Researcher --> Groq
+    Critic --> Groq
+    Reviser --> Groq
+    Reviser --> ReportViewer
+    Evals --> Coord
+    Runner --> Grader
+    Runner --> Adapter
 ```
 
 **Backend**: FastAPI, Python 3.11, Groq LLM (Qwen 2.5 / Llama 3.3 70B), Supabase (PostgreSQL + JSONB)
