@@ -5,6 +5,18 @@ export default function Home() {
   return (
     <main className="min-h-screen flex flex-col relative overflow-hidden">
 
+      <div className="sticky top-0 z-20 w-full px-4 py-3 text-center text-sm text-amber-200/90 bg-amber-500/10 border-b border-amber-500/20 backdrop-blur-sm">
+        Currently the backend is down on purpose. Run this project locally using your own API keys:{" "}
+        <a
+          href="https://github.com/tarunkauxhik/SynapseAI"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline text-amber-300 hover:text-amber-100 transition-colors"
+        >
+          github.com/tarunkauxhik/SynapseAI
+        </a>
+      </div>
+
       {/* Background Decor - cleaner, more subtle */}
       <div className="absolute top-0 left-0 w-full h-[500px] bg-gradient-to-b from-blue-900/10 to-transparent pointer-events-none z-0" />
       <div className="absolute top-[20%] left-[50%] -translate-x-1/2 w-[800px] h-[300px] bg-blue-500/5 rounded-[100%] blur-[120px] pointer-events-none z-0" />
