@@ -3,6 +3,7 @@ Unified Grader - runs ALL grading logics in a single pass and aggregates results
 Provides comprehensive evaluation without running agent multiple times.
 """
 from __future__ import annotations
+import re
 from typing import Any, Dict, Optional
 from .base import Grader
 from ..types import EvalCase, ToolCall
@@ -142,36 +143,17 @@ class UnifiedGrader(Grader):
             "overall": {"score": 50, "reason": "Could not parse", "passed": False},
         }
         
-        lines = response.strip().split("\n")
-        
-        for line in lines:
-            line_upper = line.upper()
-            try:
-                if line_upper.startswith("CONTENT_SCORE:"):
-                    result["content"]["score"] = int(line.split(":")[1].strip())
-                elif line_upper.startswith("CONTENT_REASON:"):
-                    result["content"]["reason"] = line.split(":", 1)[1].strip()
-                elif line_upper.startswith("TOOL_SCORE:"):
-                    result["tool"]["score"] = int(line.split(":")[1].strip())
-                elif line_upper.startswith("TOOL_REASON:"):
-                    result["tool"]["reason"] = line.split(":", 1)[1].strip()
-                elif line_upper.startswith("SOURCE_SCORE:"):
-                    result["source"]["score"] = int(line.split(":")[1].strip())
-                elif line_upper.startswith("SOURCE_REASON:"):
-                    result["source"]["reason"] = line.split(":", 1)[1].strip()
-                elif line_upper.startswith("REASONING_SCORE:"):
-                    result["reasoning"]["score"] = int(line.split(":")[1].strip())
-                elif line_upper.startswith("REASONING_REASON:"):
-                    result["reasoning"]["reason"] = line.split(":", 1)[1].strip()
-                elif line_upper.startswith("OVERALL_VERDICT:"):
-                    result["overall"]["passed"] = "PASS" in line.upper()
-                elif line_upper.startswith("OVERALL_SCORE:"):
-                    result["overall"]["score"] = int(line.split(":")[1].strip())
-                elif line_upper.startswith("OVERALL_REASON:"):
-                    result["overall"]["reason"] = line.split(":", 1)[1].strip()
-            except (ValueError, IndexError):
-                continue
-        
+        # Tolerant of markdown (**CONTENT_SCORE:** 85), "85/100" and stray spacing
+        for key in result:
+            score = re.search(rf"{key}_SCORE[*_:=\s]*(\d{{1,3}})", response, re.IGNORECASE)
+            if score:
+                result[key]["score"] = min(int(score.group(1)), 100)
+            reason = re.search(rf"{key}_REASON[*_:=\s]*(.+)", response, re.IGNORECASE)
+            if reason:
+                result[key]["reason"] = reason.group(1).strip().strip("*").strip()
+        verdict = re.search(r"OVERALL_VERDICT[*_:=\s]*(PASS|FAIL)", response, re.IGNORECASE)
+        result["overall"]["passed"] = bool(verdict) and verdict.group(1).upper() == "PASS"
+
         return result
     
     async def grade_async(self, output: str, case: EvalCase) -> tuple[bool, float, str]:
@@ -186,7 +168,7 @@ class UnifiedGrader(Grader):
         prompt = UNIFIED_GRADER_PROMPT.format(
             input=case.input,
             expected=case.expected,
-            output=output[:6000],  # Limit output length
+            output=output[:30000],  # A full report is ~15-25k chars; the judge must see its references
             tools_summary=tools_summary,
             sources_summary=sources_summary,
         )
@@ -242,3 +224,16 @@ class UnifiedGrader(Grader):
     def grade(self, output: str, case: EvalCase) -> tuple[bool, float, str]:
         import asyncio
         return asyncio.run(self.grade_async(output, case))
+
+
+if __name__ == "__main__":
+    # Self-check for the judge-output parser: python -m evals.graders.unified
+    g = UnifiedGrader()
+    p = g._parse_response(
+        "**CONTENT_SCORE:** 85/100\nCONTENT_REASON: Solid.\nTOOL_SCORE: 70\n"
+        "SOURCE_SCORE : 40\nREASONING_SCORE: 120\nOVERALL_VERDICT: **PASS**\nOVERALL_SCORE: 66"
+    )
+    assert (p["content"]["score"], p["tool"]["score"], p["source"]["score"], p["reasoning"]["score"]) == (85, 70, 40, 100), p
+    assert p["content"]["reason"] == "Solid." and p["overall"]["passed"] and p["overall"]["score"] == 66
+    assert g._parse_response("nothing useful")["content"]["score"] == 50  # default when missing
+    print("ok")

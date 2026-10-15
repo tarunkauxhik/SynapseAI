@@ -50,8 +50,9 @@ class LLMClientAdapter:
         )
         
         content = await client.generate_response(
-            prompt=user_msg, 
-            system_prompt=system_msg
+            prompt=user_msg,
+            system_prompt=system_msg,
+            model=self.model  # the judge model, never the agent's
         )
         
         return MockResponse(content)

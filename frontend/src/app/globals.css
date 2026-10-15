@@ -68,3 +68,21 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #444;
 }
+/* Print / "Download PDF": light page, no glass or glow, report content only */
+@media print {
+  body {
+    background: #fff !important;
+  }
+
+  * {
+    color: #111 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+    backdrop-filter: none !important;
+  }
+
+  a {
+    text-decoration: underline;
+  }
+}

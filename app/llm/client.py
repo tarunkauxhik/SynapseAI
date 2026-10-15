@@ -6,6 +6,7 @@ Handles text generation and structured JSON outputs using Pydantic.
 import json
 import logging
 import re
+from contextvars import ContextVar
 from typing import Type, TypeVar, Optional
 from pydantic import BaseModel, ValidationError
 
@@ -17,6 +18,10 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T", bound=BaseModel)
 
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+
+# Per-asyncio-task model override. Only eval runs set it (inside their own task),
+# so production research tasks always use LLM_MODEL.
+model_override: ContextVar[Optional[str]] = ContextVar("llm_model_override", default=None)
 
 
 def strip_reasoning(text: str) -> str:
@@ -43,10 +48,11 @@ class LLMClient:
         # The SDK retries 429/5xx/connection errors with exponential backoff.
         self.client = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=120.0, max_retries=2)
 
-    async def _complete(self, system_prompt: str, prompt: str, temperature: float, json_mode: bool = False) -> str:
+    async def _complete(self, system_prompt: str, prompt: str, temperature: float, json_mode: bool = False, model: Optional[str] = None) -> str:
         extra = {"response_format": {"type": "json_object"}} if json_mode else {}
         response = await self.client.chat.completions.create(
-            model=self.model,
+            # Explicit model (eval judge) > eval-run override > LLM_MODEL
+            model=model or model_override.get() or self.model,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt}
@@ -62,12 +68,13 @@ class LLMClient:
         self,
         prompt: str,
         system_prompt: str = "You are a helpful research assistant.",
-        temperature: float = 0.7
+        temperature: float = 0.7,
+        model: Optional[str] = None
     ) -> str:
         """
         Generate a standard string response.
         """
-        return await self._complete(system_prompt, prompt, temperature)
+        return await self._complete(system_prompt, prompt, temperature, model=model)
 
     async def generate_structured_response(
         self,

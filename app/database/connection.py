@@ -139,6 +139,44 @@ class SupabaseManager:
             logger.error(f"Get Task Failed: {e}")
             return None
 
+    # --- EVAL RUNS (table: eval_runs) ---
+
+    async def create_eval_run(self, data: dict) -> str:
+        """Inserts a run (status 'running') and returns its id. Raises on failure."""
+        self._ensure_initialized()
+        res = self.client.table("eval_runs").insert(data).execute()
+        return res.data[0]["id"]
+
+    async def update_eval_run(self, run_id: str, data: dict):
+        self._ensure_initialized()
+        try:
+            self.client.table("eval_runs").update(data).eq("id", run_id).execute()
+        except Exception as e:
+            logger.error(f"Update Eval Run Failed: {e}")
+
+    async def latest_eval_run(self, agent_model: str) -> Optional[dict]:
+        self._ensure_initialized()
+        res = self.client.table("eval_runs").select("*")\
+            .eq("agent_model", agent_model)\
+            .order("created_at", desc=True)\
+            .limit(1)\
+            .execute()
+        return res.data[0] if res.data else None
+
+    async def fail_stale_eval_runs(self) -> int:
+        """Marks eval runs left 'running' by a previous process as failed. Call once at startup."""
+        self._ensure_initialized()
+        try:
+            res = self.client.table("eval_runs").update({
+                "status": "failed",
+                "error": "Server restarted during the run.",
+                "finished_at": datetime.now(timezone.utc).isoformat()
+            }).eq("status", "running").execute()
+            return len(res.data or [])
+        except Exception as e:
+            logger.error(f"Fail Stale Eval Runs Failed (is the eval_runs table created?): {e}")
+            return 0
+
     async def update_task_status(self, task_id: str, status: ResearchStatus):
         """Status update. Sets completed_at when COMPLETED. A FAILED task is never changed again."""
         self._ensure_initialized()

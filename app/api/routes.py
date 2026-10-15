@@ -131,8 +131,9 @@ async def startup_event():
     coordinator = await get_coordinator()
     # Background work dies with the process (e.g. a Render restart), so fail leftovers
     stale = await coordinator.db.fail_stale_tasks()
-    if stale:
-        print(f"Marked {stale} interrupted task(s) as failed.")
+    stale_evals = await coordinator.db.fail_stale_eval_runs()
+    if stale or stale_evals:
+        print(f"Marked {stale} interrupted task(s) and {stale_evals} eval run(s) as failed.")
 
 # --- Routes ---
 

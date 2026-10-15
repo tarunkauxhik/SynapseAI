@@ -95,6 +95,7 @@ class EvalResult:
             "latency_ms": self.latency_ms,
             "error": self.error,
             "grader_type": self.grader_type,
+            "task_id": (self.trace or {}).get("task_id"),  # research task behind this case
         }
         # Add enhanced fields if present
         if self.grader_breakdown:

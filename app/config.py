@@ -28,6 +28,17 @@ class Settings(BaseSettings):
     # Research Tools API Keys
     tavily_api_key: Optional[str] = Field(default=None)  # For web search
 
+    # Evals: comma-separated agent model allowlist (first = default), the judge, and the run key
+    eval_agent_models: str = Field(default="MiniMax-M3,MiniMax-M2.5-highspeed")
+    eval_judge_model: str = Field(default="MiniMax-M2.7")
+    eval_run_key: Optional[str] = Field(default=None)  # unset = eval runs disabled
+
+    @property
+    def eval_agent_model_list(self) -> list:
+        """Allowed eval agent models; the judge is never allowed as an agent."""
+        models = [m.strip() for m in self.eval_agent_models.split(",") if m.strip()]
+        return [m for m in models if m != self.eval_judge_model]
+
 
 # Create settings instance, allowing for test overrides
 def get_settings() -> Settings:

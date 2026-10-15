@@ -1,4 +1,4 @@
-import json
+import asyncio
 import re
 from typing import Optional, List, Any, Dict
 from evals.types import ToolCall, ReasoningStep
@@ -53,9 +53,15 @@ class ResearchAgentAdapter:
         query = ResearchQuery(topic=task_input)
         task_id = await self.coordinator.create_task(query)
         
+        self.last_trace = {"task_id": task_id}  # lets the eval page link to the report
+
         # 2. Run the workflow
         try:
             await self.coordinator.start_workflow(task_id)
+        except asyncio.CancelledError:
+            # Eval run cancelled: don't leave the research task stuck "in progress"
+            await self.coordinator._update_status(task_id, ResearchStatus.FAILED)
+            raise
         except Exception as e:
             return f"Error during workflow execution: {e}"
         
@@ -85,8 +91,8 @@ class ResearchAgentAdapter:
             # Extract sources from report
             self._extract_sources_from_report(task)
             
-            # Convert report to string
-            return json.dumps(task.current_report.model_dump(), indent=2)
+            # Readable text (not JSON) so the judge sees the whole report incl. references
+            return self._report_to_text(task.current_report)
             
         elif task.status == ResearchStatus.FAILED:
             return f"Research task failed. logs: {[l.message for l in task.agent_logs[-3:]]}"
@@ -127,10 +133,10 @@ class ResearchAgentAdapter:
         if not hasattr(task, 'agent_logs'):
             return
         
-        # NEW: Parse [TOOL_CALL] entries first (most reliable)
+        # One [TOOL_CALL] line per call. (The [TOOLS_USED] summary is logged before them,
+        # so parsing it too counted every tool twice.)
         tool_call_pattern = r"\[TOOL_CALL\]\s*(\w+)\((.+?)\.\.\.\)\s*->\s*(\d+)\s*results"
-        tools_used_pattern = r"\[TOOLS_USED\]\s*(.+)"
-        
+
         for log in task.agent_logs:
             message = log.message if hasattr(log, 'message') else str(log)
             
@@ -144,20 +150,6 @@ class ResearchAgentAdapter:
                     output=None,
                     description=f"Tool call: {tool_name}({query}...) -> {result_count} results",
                 ))
-            
-            # Also check for [TOOLS_USED] summary
-            tools_used_matches = re.findall(tools_used_pattern, message, re.IGNORECASE)
-            for match in tools_used_matches:
-                tool_names = [t.strip() for t in match.split(',')]
-                for tool_name in tool_names:
-                    # Avoid duplicates
-                    if not any(t.name == tool_name for t in self.tools_called):
-                        self.tools_called.append(ToolCall(
-                            name=tool_name,
-                            input_parameters={},
-                            output=None,
-                            description=f"Tool used: {tool_name}",
-                        ))
 
     def _extract_reasoning_from_logs(self, task) -> None:
         """Extract reasoning steps from agent logs."""
@@ -193,28 +185,18 @@ class ResearchAgentAdapter:
             self.reasoning_steps.append(current_thought)
 
     def _extract_sources_from_report(self, task) -> None:
-        """Extract source URLs and references from the report."""
+        """The report's references (already limited to gathered sources by ground_references)."""
         if not task.current_report:
             return
-        
-        report_text = ""
-        if hasattr(task.current_report, 'content'):
-            report_text = task.current_report.content
-        elif hasattr(task.current_report, 'model_dump'):
-            report_dict = task.current_report.model_dump()
-            report_text = json.dumps(report_dict)
-        
-        # Extract URLs
-        url_pattern = r'https?://[^\s\)\]\}\"\'<>]+'
-        urls = re.findall(url_pattern, report_text)
-        
-        # Extract citations like [1], [Source: ...]
-        citation_pattern = r'\[(?:Source:|Ref:|Citation:)?\s*([^\]]+)\]'
-        citations = re.findall(citation_pattern, report_text)
-        
-        # Combine and deduplicate
-        all_sources = list(set(urls + [c for c in citations if not c.isdigit()]))
-        self.sources_used = all_sources[:20]  # Limit to 20 sources
+        self.sources_used = [r.url for r in task.current_report.references if r.url][:20]
+
+    @staticmethod
+    def _report_to_text(report) -> str:
+        parts = [f"# {report.title}", report.abstract]
+        parts += [f"## {s.title}\n{s.content}" for s in report.sections]
+        parts += ["## Conclusion", report.conclusion, "## References"]
+        parts += [f"[{r.id}] {r.title} - {r.url}" for r in report.references]
+        return "\n\n".join(parts)
 
     def get_last_trace(self) -> Optional[dict]:
         return self.last_trace if self.last_trace else None

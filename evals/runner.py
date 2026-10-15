@@ -77,15 +77,16 @@ class EvalRunner:
     # Execution
     # -------------------------------------------------------------------------
 
-    async def run(self) -> EvalSummary:
+    async def run(self, on_result=None) -> EvalSummary:
+        """on_result(results_so_far) is awaited after each case (sequential runs only)."""
         evaluator = Evaluator(self.agent, grader=self.grader)
         if self.parallel:
             results = await self._run_parallel(evaluator)
         else:
-            results = await self._run_sequential(evaluator)
+            results = await self._run_sequential(evaluator, on_result)
         return EvalSummary(name=self.name, results=results)
-    
-    async def _run_sequential(self, evaluator: Evaluator) -> List[EvalResult]:
+
+    async def _run_sequential(self, evaluator: Evaluator, on_result=None) -> List[EvalResult]:
         results = []
         for i, case in enumerate(self.cases):
             print(f"Running case {i+1}/{len(self.cases)}: {case.name}")
@@ -93,6 +94,8 @@ class EvalRunner:
             results.append(result)
             status = "PASS" if result.passed else "FAIL"
             print(f"  {status} Score: {result.score:.2f} | {result.reason[:50]}")
+            if on_result:
+                await on_result(results)
         return results
     
     async def _run_parallel(self, evaluator: Evaluator) -> List[EvalResult]:

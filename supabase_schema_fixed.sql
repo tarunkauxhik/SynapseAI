@@ -67,3 +67,20 @@ ALTER TABLE task_logs ENABLE ROW LEVEL SECURITY;
 -- However, these allow "Anon" access if you want to test from a frontend directly.
 CREATE POLICY "Enable all access" ON research_tasks FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Enable all access" ON task_logs FOR ALL USING (true) WITH CHECK (true);
+-- 6. EVAL RUNS (one row per eval run; results are saved after each case)
+-- RLS on with no policies: only the backend's service-role key can read/write.
+CREATE TABLE IF NOT EXISTS eval_runs (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    status VARCHAR(20) NOT NULL DEFAULT 'running', -- running, completed, failed, cancelled
+    agent_model TEXT NOT NULL,
+    judge_model TEXT NOT NULL,
+    dataset TEXT NOT NULL,
+    total_cases INTEGER NOT NULL DEFAULT 0,
+    summary JSONB DEFAULT '{}',
+    results JSONB DEFAULT '[]',
+    error TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    finished_at TIMESTAMP WITH TIME ZONE
+);
+CREATE INDEX IF NOT EXISTS idx_eval_runs_model_created ON eval_runs(agent_model, created_at DESC);
+ALTER TABLE eval_runs ENABLE ROW LEVEL SECURITY;

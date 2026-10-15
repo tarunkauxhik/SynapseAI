@@ -124,6 +124,9 @@ Environment variables (see `.env.example`):
 | `LLM_MODEL` | no | Model ID (default `MiniMax-M3`) |
 | `TAVILY_API_KEY` | no | Web search; without it only Wikipedia is used |
 | `CORS_ORIGINS` | prod | Comma-separated frontend origins (default `http://localhost:3000`) |
+| `EVAL_AGENT_MODELS` | no | Eval agent model allowlist, first = default (default `MiniMax-M3,MiniMax-M2.5-highspeed`) |
+| `EVAL_JUDGE_MODEL` | no | Eval judge model, never used as an agent (default `MiniMax-M2.7`) |
+| `EVAL_RUN_KEY` | no | Key required to start/cancel eval runs; unset = runs disabled. Never commit it |
 
 `GET /health` does one tiny Supabase read; point an external cron at it to keep Render and Supabase awake.
 

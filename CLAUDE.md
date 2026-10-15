@@ -36,14 +36,23 @@ A typical task makes 4 LLM calls and takes about 100s on MiniMax-M3. Revising is
   - `llm/`, `database/connection.py`: Supabase; tables `research_tasks` and `task_logs` only.
   - `tools/`: Tavily, Wikipedia (aiohttp, one session per call, 30s timeout).
   - `models/`.
-- `evals/`: eval harness. `POST /eval/run` runs every case in `eval_cases.json` synchronously and grades each with one LLM call.
+- `evals/` + [app/api/eval_routes.py](app/api/eval_routes.py): eval harness.
+  - `POST /eval/run` needs the `X-Eval-Key` header (`EVAL_RUN_KEY`; unset = disabled). It starts one background run at a time (409 if one is going) and saves results to the Supabase `eval_runs` table after each case.
+  - `GET /eval/runs/latest` returns the latest run per agent model. `DELETE /eval/runs/{id}` (key) cancels.
+  - Agent models come from the `EVAL_AGENT_MODELS` allowlist (the judge is filtered out). The judge is `EVAL_JUDGE_MODEL` (default MiniMax-M2.7).
+  - The agent model is set via the `model_override` ContextVar in [app/llm/client.py](app/llm/client.py), inside the eval task only, so production research keeps using `LLM_MODEL`.
+  - The judge gets the full report as readable text. The adapter returns that text, and `sources_used` = the report's reference URLs.
+  - Self-check: `python -m evals.graders.unified`.
 - `frontend/`: Next.js.
   - `src/lib/api.ts`: reads `NEXT_PUBLIC_API_URL`, which is inlined at build time.
+  - `components/SiteHeader.tsx`: the shared header (logo plus pill actions) on every page.
+  - `app/research/[taskId]/page.tsx`: polling, not-found, failed/cancelled banner, Cancel button. Logs collapse once the task is done.
+  - `components/evals/EvalPanel.tsx`: latest run per model side by side. It asks for the eval key on Run and keeps it in sessionStorage.
   - `components/ProgressTracker.tsx`: shows `status.logs` (history) plus live WebSocket lines not yet polled, deduplicated on timestamp + message. The stage comes from the parent page's polling.
 - `supabase_schema_fixed.sql`: the DB schema.
 
 ## Env vars (names only; never print `.env` values)
-`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (or `SUPABASE_KEY`), `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`, `TAVILY_API_KEY`, `CORS_ORIGINS`.
+`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (or `SUPABASE_KEY`; the service role key is required for `eval_runs`, which has RLS with no policies), `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`, `TAVILY_API_KEY`, `CORS_ORIGINS`, `EVAL_AGENT_MODELS`, `EVAL_JUDGE_MODEL`, `EVAL_RUN_KEY` (never commit it).
 
 ## Run locally
 - Backend: `pip install -r requirements.txt && uvicorn app.api.routes:app --reload` (port 8000).

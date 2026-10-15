@@ -37,6 +37,7 @@ export function ProgressTracker({ taskId, status }: ProgressTrackerProps) {
     }, [status?.logs, wsLogs]);
     const [isConnected, setIsConnected] = useState(false);
     const currentStage = status?.current_stage || "initializing";
+    const isFinished = currentStage === "finished";
 
     // Stop reconnecting the WebSocket once the task is done
     const finished = status?.status === "completed" || status?.status === "failed";
@@ -101,7 +102,7 @@ export function ProgressTracker({ taskId, status }: ProgressTrackerProps) {
             {/* Stages Timeline - The Circuit Board */}
             <div className="lg:col-span-1 glass-panel p-6 rounded-2xl h-fit">
                 <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-6 flex items-center gap-2">
-                    <span className="h-2 w-2 bg-blue-500 rounded-full animate-pulse" />
+                    <span className={cn("h-2 w-2 rounded-full", finished ? "bg-gray-600" : "bg-blue-500 animate-pulse")} />
                     System Status
                 </h3>
 
@@ -110,8 +111,8 @@ export function ProgressTracker({ taskId, status }: ProgressTrackerProps) {
                     <div className="absolute left-[19px] top-2 bottom-4 w-[2px] bg-white/5" />
 
                     {STAGES.map((stage, index) => {
-                        const isActive = stage.id === currentStage;
-                        const isCompleted = STAGES.findIndex(s => s.id === currentStage) > index || currentStage === "finished";
+                        const isActive = !isFinished && stage.id === currentStage;
+                        const isCompleted = isFinished || STAGES.findIndex(s => s.id === currentStage) > index;
 
                         return (
                             <div key={stage.id} className="relative z-10 flex items-start group min-h-[60px]">
@@ -151,15 +152,15 @@ export function ProgressTracker({ taskId, status }: ProgressTrackerProps) {
                 <div className="mt-8 pt-6 border-t border-white/5">
                     <div className="flex items-center justify-between text-xs text-gray-500 font-mono">
                         <span>CONNECTION</span>
-                        <span className={cn(isConnected ? "text-emerald-400" : "text-red-400")}>
-                            {isConnected ? "STABLE" : "OFFLINE"}
+                        <span className={cn(finished ? "text-gray-500" : isConnected ? "text-emerald-400" : "text-red-400")}>
+                            {finished ? "CLOSED" : isConnected ? "STABLE" : "OFFLINE"}
                         </span>
                     </div>
                 </div>
             </div>
 
             {/* Live Logs - The Terminal */}
-            <div className="lg:col-span-3 glass-panel rounded-2xl overflow-hidden flex flex-col h-[600px] border-l-4 border-l-blue-500/20">
+            <div className="lg:col-span-3 glass-panel rounded-2xl overflow-hidden flex flex-col h-96 md:h-[600px] border-l-4 border-l-blue-500/20">
                 <div className="p-4 border-b border-white/5 bg-black/40 flex items-center justify-between">
                     <div className="flex items-center gap-2">
                         <div className="h-3 w-3 rounded-full bg-red-500/20 border border-red-500/50" />

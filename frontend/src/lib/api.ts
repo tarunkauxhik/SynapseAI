@@ -46,14 +46,27 @@ export async function startResearch(data: ResearchRequest): Promise<ResearchResp
     return response.json();
 }
 
+export class HttpError extends Error {
+    constructor(public status: number) {
+        super(`Request failed (${status})`);
+    }
+}
+
 export async function getTaskStatus(taskId: string): Promise<TaskStatusResponse> {
     const response = await fetch(`${API_BASE_URL}/research/${taskId}/status`);
 
     if (!response.ok) {
-        throw new Error("Failed to fetch status");
+        throw new HttpError(response.status);
     }
 
     return response.json();
+}
+
+export async function cancelResearch(taskId: string): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/research/${taskId}`, { method: "DELETE" });
+    if (!response.ok) {
+        throw new HttpError(response.status);
+    }
 }
 
 export function getWebSocketUrl(taskId: string): string {
