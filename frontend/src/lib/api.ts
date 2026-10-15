@@ -27,6 +27,7 @@ export interface TaskStatusResponse {
     };
     current_stage: string;
     result: any;
+    logs?: { agent: string; message: string; timestamp: string }[];
 }
 
 export async function startResearch(data: ResearchRequest): Promise<ResearchResponse> {

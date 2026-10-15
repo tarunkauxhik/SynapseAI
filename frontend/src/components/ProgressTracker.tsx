@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { getWebSocketUrl, TaskStatusResponse } from "@/lib/api";
 import { CheckCircle2, Circle, Loader2, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/api";
@@ -26,7 +26,15 @@ const STAGES = [
 ];
 
 export function ProgressTracker({ taskId, status }: ProgressTrackerProps) {
-    const [logs, setLogs] = useState<LogMessage[]>([]);
+    const [wsLogs, setWsLogs] = useState<LogMessage[]>([]);
+
+    // Polled logs (full history, survives refresh) + live WS lines not polled yet.
+    // Both copies of a line carry the same timestamp + message, so that's the dedupe key.
+    const logs = useMemo(() => {
+        const polled = status?.logs ?? [];
+        const seen = new Set(polled.map(l => l.timestamp + l.message));
+        return [...polled, ...wsLogs.filter(l => !seen.has(l.timestamp + l.message))];
+    }, [status?.logs, wsLogs]);
     const [isConnected, setIsConnected] = useState(false);
     const currentStage = status?.current_stage || "initializing";
 
@@ -63,7 +71,7 @@ export function ProgressTracker({ taskId, status }: ProgressTrackerProps) {
 
                     // Stage comes from the parent's polling; the socket only streams log lines
                     if (message.type === "log_message") {
-                        setLogs(prev => [...prev, message.data]);
+                        setWsLogs(prev => [...prev, message.data]);
                     }
                 } catch (e) {
                     console.error("Error parsing WebSocket message", e);

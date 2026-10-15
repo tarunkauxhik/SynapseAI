@@ -38,6 +38,7 @@ class TaskStatusResponse(BaseModel):
     progress: Dict[str, Any]
     current_stage: str # e.g. "browsing_web", "writing_report"
     result: Optional[Dict] = None # The final report if ready
+    logs: List[Dict[str, str]] = [] # Same shape as WebSocket "log_message" data
 
 # --- App Setup ---
 
@@ -216,7 +217,11 @@ async def get_task_status(
         status=task.status.value,
         progress=progress_info,
         current_stage=current_stage,
-        result=task.current_report.model_dump() if task.current_report else None
+        result=task.current_report.model_dump() if task.current_report else None,
+        logs=[
+            {"agent": log.agent_type.value, "message": log.message, "timestamp": log.timestamp.isoformat()}
+            for log in task.agent_logs
+        ]
     )
 
 @app.delete("/research/{task_id}")

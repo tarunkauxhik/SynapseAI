@@ -8,7 +8,7 @@ Self-correcting multi-agent research app. A user submits a topic. The Researcher
 1. `POST /research` ([app/api/routes.py](app/api/routes.py)) inserts a `research_tasks` row, starts `coordinator.launch(task_id)` (an asyncio task, cancellable) and returns 202.
 2. [app/orchestrator/coordinator.py](app/orchestrator/coordinator.py) runs these stages:
    - PLANNING: `researcher.generate_plan`, then the plan is saved.
-   - IN_PROGRESS: one search (Tavily, falling back to DuckDuckGo, using only `search_queries[0]`) runs in parallel with a Wikipedia search on `main_topic`, then the draft is written.
+   - IN_PROGRESS: one Tavily search (using only `search_queries[0]`) runs in parallel with a Wikipedia search on `main_topic`, then the draft is written.
    - REVIEWING: the Critic scores the draft.
    - REVISING: runs once if the score is below 6.5.
    - COMPLETED.
@@ -33,12 +33,12 @@ A typical task makes 4 LLM calls and takes about 100s on MiniMax-M3. Revising is
   - `api/`: routes, eval routes.
   - `agents/`: researcher, critic, reviser.
   - `llm/`, `database/connection.py`: Supabase; tables `research_tasks` and `task_logs` only.
-  - `tools/`: Tavily/DDG, Wikipedia (aiohttp, one session per call, 30s timeout).
+  - `tools/`: Tavily, Wikipedia (aiohttp, one session per call, 30s timeout).
   - `models/`.
 - `evals/`: eval harness. `POST /eval/run` runs every case in `eval_cases.json` synchronously and grades each with one LLM call.
 - `frontend/`: Next.js.
   - `src/lib/api.ts`: reads `NEXT_PUBLIC_API_URL`, which is inlined at build time.
-  - `components/ProgressTracker.tsx`: WebSocket logs; the stage comes from the parent page's polling.
+  - `components/ProgressTracker.tsx`: shows `status.logs` (history) plus live WebSocket lines not yet polled, deduplicated on timestamp + message. The stage comes from the parent page's polling.
 - `supabase_schema_fixed.sql`: the DB schema.
 
 ## Env vars (names only; never print `.env` values)
@@ -51,6 +51,5 @@ A typical task makes 4 LLM calls and takes about 100s on MiniMax-M3. Revising is
 ## Known limitations
 - Only the first planned query is searched.
 - Wikipedia results are snippets only.
-- The DuckDuckGo Instant Answer API blocks the aiohttp user agent (403/202), so search effectively relies on Tavily.
-- Log lines are WebSocket-only, so logs emitted before the socket connects, or before a page refresh, are not shown.
+- Web search is Tavily only; with no key or no results the task uses Wikipedia only (a warning is logged). The DuckDuckGo fallback was removed because DDG blocks the aiohttp user agent.
 - The Supabase client is synchronous and briefly blocks the event loop on each DB call.

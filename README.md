@@ -29,7 +29,6 @@ flowchart TB
 
     subgraph Tools["Tools (app/tools)"]
         Tavily[Tavily\nPrimary]
-        DDG[DuckDuckGo\nFallback]
         Wiki[Wikipedia\nKnowledge]
     end
 
@@ -58,7 +57,6 @@ flowchart TB
     Coord --> Tasks
     Coord --> Logs
     Researcher --> Tavily
-    Researcher --> DDG
     Researcher --> Wiki
     Researcher --> LLM
     Critic --> LLM
@@ -180,7 +178,7 @@ Results are visualized in the frontend at `/evals`.
 │   ├── llm/             # OpenAI-compatible client with structured JSON output
 │   ├── models/          # Pydantic models (the data contract)
 │   ├── orchestrator/    # Coordinator state machine
-│   └── tools/           # Web search (Tavily/DDG) + Wikipedia
+│   └── tools/           # Web search (Tavily) + Wikipedia
 ├── evals/               # Evaluation runner, graders, types
 ├── frontend/            # Next.js 16 app
 │   └── src/

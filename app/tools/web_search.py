@@ -1,5 +1,5 @@
 """
-Web search tool using DuckDuckGo and Tavily with Pydantic integration.
+Web search tool using Tavily with Pydantic integration.
 """
 
 import logging
@@ -14,8 +14,8 @@ logger = logging.getLogger(__name__)
 
 class WebSearchTool:
     """
-    Tool for searching the web.
-    Prioritizes Tavily (Premium) -> DuckDuckGo (Free/Fallback).
+    Tool for searching the web via Tavily.
+    No fallback: the Researcher runs Wikipedia alongside, which is then the only source.
     """
 
     _RATE_LIMIT_DELAY = 1.0 # 1 second between search requests
@@ -34,24 +34,20 @@ class WebSearchTool:
 
     async def search(self, query: str, max_results: int = 5) -> List[ResearchSource]:
         """
-        Main entry point. Tries Tavily, falls back to DuckDuckGo.
+        Main entry point. Returns [] if Tavily is unavailable (Wikipedia-only research).
         """
+        if not self.tavily_api_key:
+            logger.warning("TAVILY_API_KEY not set: web search skipped, using Wikipedia only.")
+            return []
+
         await self._enforce_rate_limit()
 
         # One session per search: safe when several tasks run at once
         async with aiohttp.ClientSession(timeout=self._TIMEOUT) as session:
-            # 1. Try Tavily (Best for Agents)
-            if self.tavily_api_key:
-                results = await self.search_tavily(session, query, max_results)
-                if results:
-                    return results
-
-            # 2. Fallback to DuckDuckGo
-            logger.info(f"Falling back to DuckDuckGo for: {query}")
-            results = await self.search_duckduckgo(session, query, max_results)
+            results = await self.search_tavily(session, query, max_results)
 
         if not results:
-            logger.warning(f"No results found for: {query}")
+            logger.warning(f"Tavily returned no results for {query!r}: using Wikipedia only.")
 
         return results
 
@@ -94,51 +90,4 @@ class WebSearchTool:
 
         except Exception as e:
             logger.error(f"Tavily Exception: {e}")
-            return []
-
-    async def search_duckduckgo(self, session: aiohttp.ClientSession, query: str, max_results: int = 5) -> List[ResearchSource]:
-        """
-        Uses DuckDuckGo Instant Answer API.
-        NOTE: This often returns 0 results for niche research topics.
-        """
-        try:
-            url = "https://api.duckduckgo.com/"
-            params = {
-                "q": query,
-                "format": "json",
-                "no_html": "1",
-                "skip_disambig": "1"
-            }
-
-            async with session.get(url, params=params) as response:
-                if response.status != 200:
-                    return []
-
-                # DDG serves JSON as application/x-javascript
-                data = await response.json(content_type=None)
-                results = []
-
-                # 1. Abstract (The main "Instant Answer")
-                if data.get("AbstractText"):
-                    results.append(ResearchSource(
-                        title=data.get("Heading", query),
-                        url=data.get("AbstractURL"),
-                        content=data.get("AbstractText"),
-                        credibility_score=0.6,
-                    ))
-
-                # 2. Related Topics (Links)
-                for topic in data.get("RelatedTopics", [])[:max_results]:
-                    if "Text" in topic and "FirstURL" in topic:
-                        results.append(ResearchSource(
-                            title=topic.get("Text", "")[:50] + "...",
-                            url=topic.get("FirstURL"),
-                            content=topic.get("Text"),
-                            credibility_score=0.5
-                        ))
-
-                return results
-
-        except Exception as e:
-            logger.error(f"DDG Exception: {e}")
             return []

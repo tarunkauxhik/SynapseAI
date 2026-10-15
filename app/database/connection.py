@@ -126,6 +126,8 @@ class SupabaseManager:
                                 agent_type=AgentType(log_entry.get("agent_type", "researcher")),
                                 message=log_entry.get("message", ""),
                                 step_name=log_entry.get("metadata", {}).get("step_name", "general"),
+                                # Original timestamp, so it matches the WebSocket copy of this line
+                                timestamp=log_entry.get("metadata", {}).get("timestamp") or log_entry.get("created_at"),
                             ))
                         except Exception:
                             # Just add message as-is if parsing fails
