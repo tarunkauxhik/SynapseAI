@@ -2,7 +2,7 @@
 
 from typing import List
 
-from app.agents.base import BaseAgent
+from app.agents.base import BaseAgent, ground_references
 from app.models.research import (
     AgentType,
     ResearchTask,
@@ -56,6 +56,7 @@ class ReviserAgent(BaseAgent):
         # We flatten lists to strings for the prompt
         weaknesses_txt = "\n- ".join(feedback.weaknesses)
         suggestions_txt = "\n- ".join(feedback.actionable_suggestions)
+        sources_txt = "\n".join(f"[{r.id}] {r.title} - {r.url}" for r in report.references)
         
         prompt = f"""
         # ORIGINAL REQUEST
@@ -82,9 +83,13 @@ class ReviserAgent(BaseAgent):
         ## Conclusion
         {report.conclusion}
         
+        # SOURCES (the only sources you may cite)
+        {sources_txt}
+
         # INSTRUCTION
-        Rewrite the report. Output the full 'ResearchReport' object structure. 
-        Retain existing valid sources in the 'sources' list.
+        Rewrite the report. Output the full 'ResearchReport' object structure.
+        Cite only the numbered sources above, inline as [n] and in each section's 'source_ids'.
+        Output "references" as an empty list []; the reference list is restored automatically.
         """
         
         # 4. Generate with Pydantic Validation
@@ -97,6 +102,9 @@ class ReviserAgent(BaseAgent):
         )
         
         # 5. Post-Processing (Logic handled by Code, not AI)
+        # Keep the draft's references; drop anything the Reviser added and remap its citations
+        revised_report = ground_references(revised_report, report.references, keep_all=True)
+
         # Increment revision number
         current_rev = report.metadata.get("revision_number", 1)
         revised_report.metadata = {

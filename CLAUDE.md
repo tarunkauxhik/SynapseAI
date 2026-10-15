@@ -26,6 +26,7 @@ A typical task makes 4 LLM calls and takes about 100s on MiniMax-M3. Revising is
 ## Reliability
 - `DELETE /research/{id}` cancels the asyncio task. `update_task_status` never overwrites a `failed` status.
 - On startup, `fail_stale_tasks` marks every non-terminal task as failed, because work in memory dies with a Render restart.
+- `ground_references` ([app/agents/base.py](app/agents/base.py)) keeps only references whose URL was gathered, then renumbers them 1..n and remaps `source_ids` and inline `[n]` citations. It runs on the draft, matching against the gathered sources, and on the revision, which keeps the draft's list (the Reviser is told to return `references: []`). Self-check: `python -m app.agents.base`.
 - `GET /health` does one tiny Supabase read and returns 503 if it fails. An external cron pings it every 14 minutes, 9 AM to 10 PM IST.
 
 ## Layout

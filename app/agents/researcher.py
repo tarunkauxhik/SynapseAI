@@ -4,7 +4,7 @@ import asyncio
 import logging
 from typing import List
 
-from app.agents.base import BaseAgent
+from app.agents.base import BaseAgent, ground_references
 from app.models.research import (
     AgentType,
     ResearchTask,
@@ -203,7 +203,8 @@ class ResearcherAgent(BaseAgent):
         
         # INSTRUCTIONS
         - Write a professional report with an Abstract, Sections, and Conclusion.
-        - In the 'sources' list of the JSON, ONLY include sources you actually cited in the text.
+        - Cite inline as [n] using the Source numbers above, and list each section's numbers in its 'source_ids'.
+        - In 'references', ONLY include sources you cited, with id = n and the exact URL given above.
         """
         
         # Direct Pydantic Generation
@@ -214,6 +215,9 @@ class ResearcherAgent(BaseAgent):
             temperature=0.4 # Balanced creativity/factuality
         )
         
+        # Only gathered sources may be cited (prompt numbers sources in this same order)
+        report = ground_references(report, sources)
+
         # Post-process: Add metadata
         report.metadata["generated_by"] = "ResearcherAgent"
         report.metadata["source_count"] = len(sources)
