@@ -37,9 +37,9 @@ A typical task makes 4 LLM calls and takes about 100s on MiniMax-M3. Revising is
   - `tools/`: Tavily, Wikipedia (aiohttp, one session per call, 30s timeout).
   - `models/`.
 - `evals/` + [app/api/eval_routes.py](app/api/eval_routes.py): eval harness.
-  - `POST /eval/run` starts one background run at a time (409 if one is going), and each model has a cooldown of `EVAL_COOLDOWN_HOURS` from its last run's start (429 with the time left).
+  - `POST /eval/run` starts one background run at a time; a second start gets 409 "A run is already in progress." (the check-and-start is atomic under a lock).
   - Cases run in parallel (`EVAL_CONCURRENCY`, default 3), one adapter per case. Each case is judged as soon as it finishes, and results are saved to the Supabase `eval_runs` table after each case. Runs can't be cancelled.
-  - `GET /eval/runs/latest` returns the latest run per agent model plus `next_run_at`.
+  - `GET /eval/runs/latest` returns the latest run per agent model.
   - Agent models come from the `EVAL_AGENT_MODELS` allowlist (the judge is filtered out). The judge is `EVAL_JUDGE_MODEL` (default MiniMax-M2.7).
   - The agent model is set via the `model_override` ContextVar in [app/llm/client.py](app/llm/client.py), inside the eval task only, so production research keeps using `LLM_MODEL`.
   - The judge gets the full report as readable text. The adapter returns that text, and `sources_used` = the report's reference URLs.
@@ -48,12 +48,12 @@ A typical task makes 4 LLM calls and takes about 100s on MiniMax-M3. Revising is
   - `src/lib/api.ts`: reads `NEXT_PUBLIC_API_URL`, which is inlined at build time.
   - `components/SiteHeader.tsx`: the shared header (logo plus pill actions) on every page.
   - `app/research/[taskId]/page.tsx`: polling, not-found, failed/cancelled banner, Cancel button. Logs collapse once the task is done.
-  - `components/evals/EvalPanel.tsx`: latest run per model side by side. It shows the cooldown ("Next run available in Xh Ym") and disables Run while a run is going or a model is cooling down.
+  - `components/evals/EvalPanel.tsx`: latest run per model side by side. Run is disabled while a run is going.
   - `components/ProgressTracker.tsx`: shows `status.logs` (history) plus live WebSocket lines not yet polled, deduplicated on timestamp + message. The stage comes from the parent page's polling.
 - `supabase_schema_fixed.sql`: the DB schema.
 
 ## Env vars (names only; never print `.env` values)
-`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (or `SUPABASE_KEY`; the service role key is required for `eval_runs`, which has RLS with no policies), `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`, `TAVILY_API_KEY`, `CORS_ORIGINS`, `EVAL_AGENT_MODELS`, `EVAL_JUDGE_MODEL`, `EVAL_CONCURRENCY`, `EVAL_COOLDOWN_HOURS`.
+`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (or `SUPABASE_KEY`; the service role key is required for `eval_runs`, which has RLS with no policies), `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`, `TAVILY_API_KEY`, `CORS_ORIGINS`, `EVAL_AGENT_MODELS`, `EVAL_JUDGE_MODEL`, `EVAL_CONCURRENCY`, `STARTUP_SWEEP` (local dev only, `false`).
 
 ## Run locally
 - Backend: `pip install -r requirements.txt && uvicorn app.api.routes:app --reload` (port 8000).

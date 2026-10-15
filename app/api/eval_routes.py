@@ -1,14 +1,13 @@
 """
 Eval endpoints: config, datasets, background eval runs (one at a time, cases in parallel)
-and the latest saved run per agent model. A model can be re-run once EVAL_COOLDOWN_HOURS
-have passed since its last run started.
+and the latest saved run per agent model.
 """
 
 import asyncio
 import glob
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -49,15 +48,6 @@ def _datasets() -> dict:
     return found
 
 
-def _next_run_at(last_run: Optional[dict]) -> Optional[datetime]:
-    """When this model may run again, or None if it may run now."""
-    if not last_run:
-        return None
-    started = datetime.fromisoformat(last_run["created_at"])
-    next_at = started + timedelta(hours=settings.eval_cooldown_hours)
-    return next_at if next_at > datetime.now(timezone.utc) else None
-
-
 async def _execute(run_id: str, dataset: str, agent_model: str):
     """Runs the cases in parallel, saving results each time a case finishes."""
     model_override.set(agent_model)  # this task (and its children) only; production tasks are unaffected
@@ -96,7 +86,6 @@ async def get_config():
     return {
         "agent_models": settings.eval_agent_model_list,
         "judge_model": settings.eval_judge_model,
-        "cooldown_hours": settings.eval_cooldown_hours,
     }
 
 
@@ -110,10 +99,8 @@ async def get_datasets():
 
 @router.get("/eval/runs/latest")
 async def latest_runs():
-    """Latest saved run per allowed agent model (side-by-side view) and when each may run again."""
-    runs = {m: await db_manager.latest_eval_run(m) for m in settings.eval_agent_model_list}
-    next_at = {m: _next_run_at(r) for m, r in runs.items()}
-    return {"runs": runs, "next_run_at": {m: t.isoformat() if t else None for m, t in next_at.items()}}
+    """Latest saved run per allowed agent model, for the side-by-side view."""
+    return {"runs": {m: await db_manager.latest_eval_run(m) for m in settings.eval_agent_model_list}}
 
 
 @router.post("/eval/run", status_code=202)
@@ -129,15 +116,7 @@ async def run_eval(request: RunEvalRequest):
 
     async with _start_lock:
         if _current and not _current.done():
-            raise HTTPException(status_code=409, detail="An eval run is already in progress.")
-        next_at = _next_run_at(await db_manager.latest_eval_run(agent_model))
-        if next_at:
-            minutes = max(1, int((next_at - datetime.now(timezone.utc)).total_seconds() // 60))
-            raise HTTPException(
-                status_code=429,
-                detail=f"Next run for {agent_model} available in {minutes // 60}h {minutes % 60}m.",
-                headers={"Retry-After": str(minutes * 60)},
-            )
+            raise HTTPException(status_code=409, detail="A run is already in progress.")
         run_id = await db_manager.create_eval_run({
             "status": "running",
             "agent_model": agent_model,

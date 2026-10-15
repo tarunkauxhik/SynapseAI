@@ -33,12 +33,10 @@ class Settings(BaseSettings):
     # or its restarts will fail production's live work.
     startup_sweep: bool = Field(default=True)
 
-    # Evals: comma-separated agent model allowlist (first = default), the judge,
-    # cases run at once, and the minimum gap between two runs of the same model
+    # Evals: comma-separated agent model allowlist (first = default), the judge, and cases run at once
     eval_agent_models: str = Field(default="MiniMax-M3,MiniMax-M2.5-highspeed")
     eval_judge_model: str = Field(default="MiniMax-M2.7")
     eval_concurrency: int = Field(default=3, ge=1)
-    eval_cooldown_hours: float = Field(default=6, ge=0)
 
     @property
     def eval_agent_model_list(self) -> list:

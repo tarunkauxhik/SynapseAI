@@ -128,7 +128,6 @@ Environment variables (see `.env.example`):
 | `EVAL_JUDGE_MODEL` | no | Eval judge model, never used as an agent (default `MiniMax-M2.7`) |
 | `STARTUP_SWEEP` | no | Mark work left running by a previous process as failed on startup (default `true`). Set `false` on a local backend that shares the production database |
 | `EVAL_CONCURRENCY` | no | Eval cases run in parallel (default `3`) |
-| `EVAL_COOLDOWN_HOURS` | no | Minimum hours between two eval runs of the same model (default `6`) |
 
 `GET /health` does one tiny Supabase read; point an external cron at it to keep Render and Supabase awake.
 

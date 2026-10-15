@@ -5,14 +5,9 @@ import Link from 'next/link';
 import type { DatasetInfo, EvalConfig, EvalResult, EvalRun } from '@/lib/types';
 import { SiteHeader, pillClass } from '@/components/SiteHeader';
 import { cn } from '@/lib/api';
-import { AlertCircle, ArrowUpRight, CheckCircle2, ChevronDown, ChevronUp, Clock, Link2, Loader2, Play, Wrench, XCircle, Zap } from 'lucide-react';
+import { AlertCircle, ArrowUpRight, CheckCircle2, ChevronDown, ChevronUp, Link2, Loader2, Play, Wrench, XCircle, Zap } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-
-function formatWait(ms: number): string {
-    const minutes = Math.max(1, Math.ceil(ms / 60000));
-    return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
-}
 
 async function errorDetail(res: Response): Promise<string> {
     try { return (await res.json()).detail || `Request failed (${res.status})`; } catch { return `Request failed (${res.status})`; }
@@ -245,21 +240,11 @@ export function EvalPanel() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
-    const [nextRunAt, setNextRunAt] = useState<Record<string, string | null>>({});
-    const [now, setNow] = useState(() => Date.now());
 
     const loadRuns = useCallback(async () => {
         const res = await fetch(`${API_URL}/eval/runs/latest`);
         if (!res.ok) throw new Error(await errorDetail(res));
-        const data = await res.json();
-        setRuns(data.runs);
-        setNextRunAt(data.next_run_at || {});
-    }, []);
-
-    // Keep the cooldown countdown current
-    useEffect(() => {
-        const timer = setInterval(() => setNow(Date.now()), 30000);
-        return () => clearInterval(timer);
+        setRuns((await res.json()).runs);
     }, []);
 
     useEffect(() => {
@@ -309,10 +294,7 @@ export function EvalPanel() {
         }
     };
 
-    // Cooldown for the selected model (the server enforces it too, with a 429)
-    const waitMs = nextRunAt[model] ? new Date(nextRunAt[model]!).getTime() - now : 0;
-    const coolingDown = waitMs > 0;
-    const runDisabled = busy || anyRunning || coolingDown || !dataset;
+    const runDisabled = busy || anyRunning || !dataset;
 
     return (
         <>
@@ -363,12 +345,6 @@ export function EvalPanel() {
                     </button>
                 </div>
 
-                {coolingDown && !anyRunning && (
-                    <p className="flex items-center gap-2 text-sm text-gray-400">
-                        <Clock className="w-4 h-4 shrink-0" />
-                        Next run for <span className="font-mono text-gray-300">{model}</span> available in {formatWait(waitMs)}
-                    </p>
-                )}
                 {error && (
                     <div role="alert" className="flex items-start gap-2 bg-rose-500/10 border border-rose-500/20 rounded-xl p-4 text-sm text-rose-300">
                         <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" /> {error}
