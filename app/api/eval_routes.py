@@ -1,7 +1,5 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import List, Optional
-import os
 import json
 import glob
 from pathlib import Path
@@ -37,10 +35,11 @@ class RunEvalRequest(BaseModel):
 
 @router.get("/config")
 async def get_config():
-    # In a real app, fetch from settings
+    # The agents and the eval judge share one LLM client
+    from app.config import settings
     return {
-        "agent_model": "llama-3.3-70b-versatile",
-        "judge_model": "llama-3.1-8b-instant"
+        "agent_model": settings.llm_model,
+        "judge_model": settings.llm_model
     }
 
 @router.get("/eval/datasets")

@@ -56,6 +56,8 @@ class Evaluator:
         
         latency_ms = (time.perf_counter() - start_time) * 1000
         enriched_case = self._enrich_case(case, tools_called, reasoning_steps, trace)
+        if sources_used:
+            enriched_case.metadata["sources"] = sources_used  # read by UnifiedGrader
         
         grader_breakdown = None
         if error:

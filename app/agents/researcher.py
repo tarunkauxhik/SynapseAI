@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from typing import List, Optional
+from typing import List
 
 from app.agents.base import BaseAgent
 from app.models.research import (
@@ -11,7 +11,6 @@ from app.models.research import (
     ResearchPlan,
     ResearchReport,
     ResearchSource,
-    ResearchStatus
 )
 from app.tools.web_search import WebSearchTool
 from app.tools.wikipedia import WikipediaTool
@@ -41,18 +40,14 @@ class ResearcherAgent(BaseAgent):
         query = task.query
         logger.info(f"Starting Research for: {query.topic}")
         
-        # 1. GENERATE PLAN (Strategy)
-        # We check if a plan already exists in the task (resume capability)
+        # 1. GENERATE PLAN (Strategy) - the coordinator normally does this first
         if not task.plan:
-            task.plan = await self._generate_plan(task)
-            task.status = ResearchStatus.PLANNING
-            # In a real DB app, you'd save the task here
-        
+            task.plan = await self.generate_plan(task)
+
         # 2. EXECUTE SEARCH (Parallel)
         # We pass the plan's specific search queries, not just the raw topic
         logger.info("Executing Search Strategy...")
-        task.status = ResearchStatus.IN_PROGRESS
-        
+
         raw_sources = await self._gather_data_parallel(task.plan, task)
         
         # Store raw results in task for the Critic to see later
@@ -62,13 +57,10 @@ class ResearcherAgent(BaseAgent):
         # 3. WRITE REPORT
         logger.info("Drafting Report...")
         report = await self._write_report(task, raw_sources)
-        
-        # Cleanup
-        await self._cleanup_tools()
-        
+
         return report
 
-    async def _generate_plan(self, task: ResearchTask) -> ResearchPlan:
+    async def generate_plan(self, task: ResearchTask) -> ResearchPlan:
         """Generates a structured search strategy."""
         
         system_prompt = "You are a Senior Research Strategist. Plan the information gathering phase."
@@ -241,7 +233,3 @@ class ResearcherAgent(BaseAgent):
             formatted.append(f"Content: {content_snippet}...\n")
             
         return "\n".join(formatted)
-
-    async def _cleanup_tools(self):
-        await self.web_search.close()
-        await self.wikipedia.close()

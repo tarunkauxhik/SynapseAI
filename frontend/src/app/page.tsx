@@ -84,7 +84,7 @@ export default function Home() {
       </div>
 
       <footer className="relative z-10 py-8 text-center text-xs text-gray-600 border-t border-white/5 mt-auto">
-        <p>Powered by Groq & Supabase</p>
+        <p>Powered by MiniMax & Supabase</p>
       </footer>
     </main>
   );

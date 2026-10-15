@@ -1,44 +1,62 @@
 """
-Groq LLM Client for Deep Research Agent.
+OpenAI-compatible LLM Client for Deep Research Agent.
 Handles text generation and structured JSON outputs using Pydantic.
 """
 
 import json
-import asyncio
-from typing import Type, TypeVar, Optional, Any
+import logging
+import re
+from typing import Type, TypeVar, Optional
 from pydantic import BaseModel, ValidationError
 
-# pip install groq
-from groq import AsyncGroq, APIConnectionError, RateLimitError
+from openai import AsyncOpenAI
+
+logger = logging.getLogger(__name__)
 
 # Generic type variable for Pydantic models
 T = TypeVar("T", bound=BaseModel)
 
-class GroqClient:
+_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+
+
+def strip_reasoning(text: str) -> str:
+    """Removes <think>...</think> blocks (and a truncated trailing one)."""
+    return _THINK_RE.sub("", text or "").split("<think>")[0].strip()
+
+
+def extract_json(text: str) -> str:
+    """Pulls the JSON object out of a reply that may contain <think> blocks, code fences or prose."""
+    text = strip_reasoning(text)
+    start, end = text.find("{"), text.rfind("}")
+    if start == -1 or end < start:
+        raise ValueError("No JSON object found in LLM response.")
+    return text[start:end + 1]
+
+
+class LLMClient:
     """
-    Async Groq client wrapper.
+    Async wrapper around any OpenAI-compatible chat completions API.
     """
-    
-    def __init__(self, api_key: str, model: str = "llama-3.3-70b-versatile"):
-        self.api_key = api_key
+
+    def __init__(self, base_url: str, api_key: str, model: str):
         self.model = model
-        self.client: Optional[AsyncGroq] = None
+        # The SDK retries 429/5xx/connection errors with exponential backoff.
+        self.client = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=120.0, max_retries=2)
 
-    async def initialize(self) -> bool:
-        """Initialize the Groq client."""
-        try:
-            self.client = AsyncGroq(api_key=self.api_key)
-            return True
-        except Exception as e:
-            print(f"Failed to initialize LLM Client: {e}")
-            return False
-
-    async def _ensure_initialized(self):
-        """Lazy initialization check."""
-        if not self.client:
-            success = await self.initialize()
-            if not success:
-                raise RuntimeError("Failed to initialize Groq client.")
+    async def _complete(self, system_prompt: str, prompt: str, temperature: float, json_mode: bool = False) -> str:
+        extra = {"response_format": {"type": "json_object"}} if json_mode else {}
+        response = await self.client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=temperature,
+            # MiniMax: skip thinking (faster, no <think> in content). Models that don't know it ignore it.
+            extra_body={"thinking": {"type": "disabled"}},
+            **extra,
+        )
+        return strip_reasoning(response.choices[0].message.content or "")
 
     async def generate_response(
         self,
@@ -49,26 +67,7 @@ class GroqClient:
         """
         Generate a standard string response.
         """
-        await self._ensure_initialized()
-        
-        try:
-            response = await self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=temperature,
-            )
-            return response.choices[0].message.content or ""
-            
-        except RateLimitError:
-            # Simple retry logic could be added here
-            raise RuntimeError("Groq Rate Limit Exceeded.")
-        except APIConnectionError:
-            raise RuntimeError("Groq Connection Error.")
-        except Exception as e:
-            raise RuntimeError(f"LLM Generation Error: {str(e)}")
+        return await self._complete(system_prompt, prompt, temperature)
 
     async def generate_structured_response(
         self,
@@ -79,14 +78,12 @@ class GroqClient:
     ) -> T:
         """
         Generates a response and parses it into the provided Pydantic model.
-        Uses Groq's native JSON mode with model-specific examples.
+        Uses JSON mode with model-specific examples; retries once on invalid JSON.
         """
-        await self._ensure_initialized()
-
         # Get model-specific example based on the response model name
         model_name = response_model.__name__
         example = self._get_model_example(model_name)
-        
+
         schema_instruction = f"""
 You must respond with a valid JSON object.
 
@@ -97,42 +94,23 @@ RULES:
 - Fill in ALL required fields with actual data based on the user's request
 - Follow the exact structure shown in the example above
 """
-        
+
         full_system_prompt = f"{system_prompt}\n\n{schema_instruction}"
 
-        try:
-            response = await self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": full_system_prompt},
-                    {"role": "user", "content": prompt}
-                ],
-                response_format={"type": "json_object"}, 
-                temperature=temperature,
-            )
-
-            content = response.choices[0].message.content
-            
-            if not content:
-                raise ValueError("LLM returned empty response.")
-
-            # Try to extract from "properties" if the LLM still wraps it
+        last_error: Optional[Exception] = None
+        for attempt in (1, 2):
+            content = await self._complete(full_system_prompt, prompt, temperature, json_mode=True)
             try:
-                parsed = json.loads(content)
-                if "properties" in parsed and isinstance(parsed["properties"], dict):
-                    content = json.dumps(parsed["properties"])
-            except:
-                pass
+                data = json.loads(extract_json(content))
+                # Unwrap if the LLM wraps the object in "properties"
+                if isinstance(data, dict) and isinstance(data.get("properties"), dict):
+                    data = data["properties"]
+                return response_model.model_validate(data)
+            except (ValueError, ValidationError) as e:
+                last_error = e
+                logger.warning(f"Invalid {model_name} JSON (attempt {attempt}): {e} | raw: {content[:300]!r}")
 
-            return response_model.model_validate_json(content)
-
-        except ValidationError as e:
-            print(f"Validation Error: {str(e)}")
-            print(f"Raw Output: {content}")
-            raise RuntimeError(f"LLM failed to generate valid {response_model.__name__} JSON.")
-            
-        except Exception as e:
-            raise RuntimeError(f"Structured Generation Error: {str(e)}")
+        raise RuntimeError(f"LLM failed to generate valid {model_name} JSON: {last_error}")
 
     def _get_model_example(self, model_name: str) -> str:
         """Returns a concrete example for each model type."""
@@ -193,13 +171,25 @@ CRITICAL - DO NOT USE OBJECTS:
 
 # --- Dependency Injection ---
 # Use this function to get the client instance in your agents
-_client_instance: Optional[GroqClient] = None
+_client_instance: Optional[LLMClient] = None
 
-async def get_llm_client() -> GroqClient:
+async def get_llm_client() -> LLMClient:
     global _client_instance
     if _client_instance is None:
         # Import settings inside the function to avoid circular imports
         from app.config import settings
-        _client_instance = GroqClient(api_key=settings.groq_api_key)
-        await _client_instance.initialize()
+        _client_instance = LLMClient(settings.llm_base_url, settings.llm_api_key, settings.llm_model)
     return _client_instance
+
+
+if __name__ == "__main__":
+    # Self-check for the parsing helpers: python -m app.llm.client
+    assert extract_json('<think>use {braces}</think>\n```json\n{"a": 1}\n```') == '{"a": 1}'
+    assert extract_json('Sure! {"a": {"b": 2}} done') == '{"a": {"b": 2}}'
+    assert strip_reasoning("<think>cut off mid-thought") == ""
+    try:
+        extract_json("<think>{}</think>no json")
+        raise AssertionError("expected ValueError")
+    except ValueError:
+        pass
+    print("ok")

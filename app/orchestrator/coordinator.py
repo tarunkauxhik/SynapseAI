@@ -7,8 +7,7 @@ import asyncio
 import logging
 import traceback
 from datetime import datetime, timezone
-from typing import Optional
-import uuid
+from typing import Dict, Optional
 
 # Import Agents
 from app.agents.researcher import ResearcherAgent
@@ -49,6 +48,9 @@ class ResearchCoordinator:
         # Observers for real-time updates (e.g. WebSockets)
         self._observers = []
 
+        # Running workflows by task_id, so cancel can stop them
+        self._running: Dict[str, asyncio.Task] = {}
+
     def register_observer(self, callback):
         """Register a callback for real-time events."""
         self._observers.append(callback)
@@ -62,10 +64,8 @@ class ResearchCoordinator:
         """Warm up the LLM and DB connections."""
         try:
             # 1. Init LLM
-            client = await get_llm_client()
-            if not await client.initialize():
-                return False
-                
+            await get_llm_client()
+
             # 2. Init DB
             if not await self.db.initialize():
                 return False
@@ -97,6 +97,12 @@ class ResearchCoordinator:
         return task_id
 
     # --- Phase 2: Background Worker (Slow) ---
+    def launch(self, task_id: str):
+        """Runs start_workflow in the background and keeps a handle so cancel_task can stop it."""
+        running = asyncio.create_task(self.start_workflow(task_id))
+        self._running[task_id] = running
+        running.add_done_callback(lambda _: self._running.pop(task_id, None))
+
     async def start_workflow(self, task_id: str):
         """
         The main loop. Runs in the background (fire-and-forget).
@@ -110,18 +116,20 @@ class ResearchCoordinator:
             return
 
         try:
-            # --- PHASE 1: RESEARCH ---
+            # --- PHASE 1: PLAN ---
+            await self._update_status(task_id, ResearchStatus.PLANNING)
+            await self._log(task_id, AgentType.PLANNER, "Planning research strategy...")
+            task.plan = await self.researcher.generate_plan(task)
+            await self.db.save_plan(task_id, task.plan)
+            await self._log(task_id, AgentType.PLANNER, f"Research plan saved: {len(task.plan.search_queries)} queries")
+
+            # --- PHASE 2: RESEARCH ---
             await self._update_status(task_id, ResearchStatus.IN_PROGRESS)
             await self._log(task_id, AgentType.RESEARCHER, "Starting Deep Research...")
-            
-            # The Researcher now modifies the task object directly (adds plan & current_report)
+
+            # The Researcher reuses task.plan and adds raw results; returns the draft
             report = await self.researcher.process(task)
-            
-            # Persist Plan (generated during research)
-            if task.plan:
-                await self.db.save_plan(task_id, task.plan)
-                await self._log(task_id, AgentType.RESEARCHER, f"Research plan saved: {len(task.plan.search_queries)} queries")
-            
+
             # Log tools called (for evaluation tracking)
             if task.tools_called:
                 tool_names = [t.tool_name for t in task.tools_called]
@@ -243,7 +251,12 @@ class ResearchCoordinator:
         task = await self.db.get_task(task_id)
         if not task or task.status in [ResearchStatus.COMPLETED, ResearchStatus.FAILED]:
             return False
-            
+
+        # Stop the running workflow (it raises CancelledError at its next await, so it writes nothing more)
+        running = self._running.get(task_id)
+        if running:
+            running.cancel()
+
         # Update DB status
         await self._update_status(task_id, ResearchStatus.FAILED)
         await self._log(task_id, AgentType.PLANNER, "Task cancelled by user request.")

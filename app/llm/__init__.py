@@ -1,1 +1,1 @@
-"""LLM integration module for Groq/Qwen."""
+"""LLM integration module (OpenAI-compatible gateway)."""

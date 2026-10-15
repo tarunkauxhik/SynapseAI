@@ -5,17 +5,16 @@ Refactored for non-blocking background execution.
 
 from datetime import datetime
 from typing import Any, Dict, List, Optional
-import uuid
-import json
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Depends, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 # Import your Coordinator and Models
 # Assumes you have a way to get the global coordinator instance
 from app.orchestrator.coordinator import ResearchCoordinator
-from app.models.research import ResearchQuery, ResearchTask, ResearchStatus
+from app.models.research import ResearchQuery, ResearchStatus
+from app.database.connection import db_manager
 from app.api.eval_routes import router as eval_router
 
 # --- Pydantic Models ---
@@ -64,7 +63,11 @@ app.add_middleware(
 # --- Health Check Endpoint ---
 @app.get("/health")
 async def health_check():
-    """Health check endpoint for Render."""
+    """Keep-alive: one tiny Supabase read keeps both Render and Supabase awake."""
+    try:
+        await db_manager.ping()
+    except Exception:
+        raise HTTPException(status_code=503, detail="Database unreachable")
     return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
 
 # --- WebSocket Manager ---
@@ -124,7 +127,11 @@ async def get_coordinator() -> ResearchCoordinator:
 @app.on_event("startup")
 async def startup_event():
     # Initialize DB pools, etc.
-    await get_coordinator()
+    coordinator = await get_coordinator()
+    # Background work dies with the process (e.g. a Render restart), so fail leftovers
+    stale = await coordinator.db.fail_stale_tasks()
+    if stale:
+        print(f"Marked {stale} interrupted task(s) as failed.")
 
 # --- Routes ---
 
@@ -141,7 +148,6 @@ async def websocket_endpoint(websocket: WebSocket, task_id: str):
 @app.post("/research", response_model=ResearchResponse, status_code=202)
 async def start_research_task(
     request: ResearchRequest,
-    background_tasks: BackgroundTasks,
     coordinator: ResearchCoordinator = Depends(get_coordinator)
 ):
     """
@@ -156,9 +162,8 @@ async def start_research_task(
         # You need to implement 'create_task' in coordinator to just write to DB
         task_id = await coordinator.create_task(query) 
         
-        # 2. Schedule the heavy lifting
-        # background_tasks runs AFTER the response is sent
-        background_tasks.add_task(coordinator.start_workflow, task_id)
+        # 2. Schedule the heavy lifting (cancellable via DELETE /research/{task_id})
+        coordinator.launch(task_id)
         
         return ResearchResponse(
             task_id=task_id,

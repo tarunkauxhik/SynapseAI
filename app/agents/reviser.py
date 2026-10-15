@@ -1,15 +1,13 @@
 """Reviser agent for improving research reports based on feedback."""
 
-import datetime
-from typing import Any, Dict, List, Optional
+from typing import List
 
 from app.agents.base import BaseAgent
 from app.models.research import (
     AgentType,
     ResearchTask,
     ResearchReport,
-    ResearchSection,
-    CritiqueFeedback
+    ResearchSection
 )
 
 
@@ -56,7 +54,6 @@ class ReviserAgent(BaseAgent):
         
         # 3. User Prompt
         # We flatten lists to strings for the prompt
-        strengths_txt = "\n- ".join(feedback.strengths)
         weaknesses_txt = "\n- ".join(feedback.weaknesses)
         suggestions_txt = "\n- ".join(feedback.actionable_suggestions)
         

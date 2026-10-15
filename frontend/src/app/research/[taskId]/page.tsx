@@ -31,11 +31,12 @@ export default function ResearchPage() {
 
         fetchStatus();
 
-        // Poll for status updates (in addition to WS in ProgressTracker) to get full object for ReportViewer
+        // Poll for stage + report (WS in ProgressTracker only streams log lines); stop once the task is done
         const interval = setInterval(async () => {
             try {
                 const data = await getTaskStatus(taskId);
                 setStatus(data);
+                if (data.status === "completed" || data.status === "failed") clearInterval(interval);
             } catch (e) {
                 // ignore
             }
@@ -74,7 +75,7 @@ export default function ResearchPage() {
                 {/* Progress Tracker (Always visible until done, then maybe condense?) */}
                 {/* Actually, keep it visible so user can see logs */}
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-6">
-                    <ProgressTracker taskId={taskId} initialStatus={status || undefined} />
+                    <ProgressTracker taskId={taskId} status={status || undefined} />
                 </div>
 
                 {/* Status Message */}

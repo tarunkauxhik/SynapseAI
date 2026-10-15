@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { getWebSocketUrl, getTaskStatus, TaskStatusResponse } from "@/lib/api";
+import { getWebSocketUrl, TaskStatusResponse } from "@/lib/api";
 import { CheckCircle2, Circle, Loader2, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/api";
 
 interface ProgressTrackerProps {
     taskId: string;
-    initialStatus?: TaskStatusResponse;
+    status?: TaskStatusResponse; // polled by the parent page
 }
 
 interface LogMessage {
@@ -25,10 +25,15 @@ const STAGES = [
     { id: "finished", label: "Final Report" }
 ];
 
-export function ProgressTracker({ taskId, initialStatus }: ProgressTrackerProps) {
+export function ProgressTracker({ taskId, status }: ProgressTrackerProps) {
     const [logs, setLogs] = useState<LogMessage[]>([]);
-    const [currentStage, setCurrentStage] = useState(initialStatus?.current_stage || "initializing");
     const [isConnected, setIsConnected] = useState(false);
+    const currentStage = status?.current_stage || "initializing";
+
+    // Stop reconnecting the WebSocket once the task is done
+    const finished = status?.status === "completed" || status?.status === "failed";
+    const finishedRef = useRef(false);
+    useEffect(() => { finishedRef.current = finished; }, [finished]);
 
     const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -56,16 +61,9 @@ export function ProgressTracker({ taskId, initialStatus }: ProgressTrackerProps)
                 try {
                     const message = JSON.parse(event.data);
 
+                    // Stage comes from the parent's polling; the socket only streams log lines
                     if (message.type === "log_message") {
                         setLogs(prev => [...prev, message.data]);
-                    } else if (message.type === "status_update") {
-                        // Map backend status to frontend stage if needed
-                        // For now rely on log messages or polling for precise stage sync if status_update is generic
-                        // Actually coordinator sends status enum value
-                        const status = message.data.status; // e.g. "in_progress"
-
-                        // Allow some mapping or just refetch status via polling
-                        // For simplicity, let's just log it here 
                     }
                 } catch (e) {
                     console.error("Error parsing WebSocket message", e);
@@ -74,31 +72,19 @@ export function ProgressTracker({ taskId, initialStatus }: ProgressTrackerProps)
 
             ws.onclose = () => {
                 setIsConnected(false);
-                // Try to reconnect
-                reconnectTimeout = setTimeout(connect, 3000);
+                // Try to reconnect, unless unmounted or the task is done
+                if (!stopped && !finishedRef.current) reconnectTimeout = setTimeout(connect, 3000);
             };
         };
 
+        let stopped = false;
         connect();
 
         return () => {
+            stopped = true;
             if (ws) ws.close();
             clearTimeout(reconnectTimeout);
         };
-    }, [taskId]);
-
-    // Polling for stage updates (backup to WebSocket)
-    useEffect(() => {
-        const interval = setInterval(async () => {
-            try {
-                const data = await getTaskStatus(taskId);
-                setCurrentStage(data.current_stage);
-            } catch (e) {
-                // ignore errors
-            }
-        }, 2000);
-
-        return () => clearInterval(interval);
     }, [taskId]);
 
     return (

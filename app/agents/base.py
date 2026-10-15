@@ -1,7 +1,7 @@
 """Base agent class for all research agents."""
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional, Type, TypeVar
+from typing import Any, Type, TypeVar
 
 # Import the model base class for type hinting
 from pydantic import BaseModel
@@ -9,7 +9,6 @@ from pydantic import BaseModel
 # Use the getter function we created to avoid circular imports/global state issues
 from app.llm.client import get_llm_client
 from app.models.research import (
-    AgentMessage,
     AgentType,
     ResearchTask, # We use the Task object as the main context
 )
@@ -76,15 +75,3 @@ class BaseAgent(ABC):
             system_prompt=system_prompt,
             temperature=temperature
         )
-    
-    def create_message(self, message: str, metadata: Optional[Dict[str, Any]] = None) -> AgentMessage:
-        """Create an agent message for the logs."""
-        return AgentMessage(
-            agent_type=self.agent_type,
-            message=message,
-            metadata=metadata or {}
-        )
-
-    def log(self, message: str):
-        """Simple internal logger."""
-        print(f"[{self.agent_type.value.upper()}] {message}")

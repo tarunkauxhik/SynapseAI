@@ -3,8 +3,7 @@ Unified Grader - runs ALL grading logics in a single pass and aggregates results
 Provides comprehensive evaluation without running agent multiple times.
 """
 from __future__ import annotations
-from typing import Any, Dict, List, Optional
-import os
+from typing import Any, Dict, Optional
 from .base import Grader
 from ..types import EvalCase, ToolCall
 from .client_adapter import get_llm_adapter
@@ -76,7 +75,7 @@ class UnifiedGrader(Grader):
             weights: Optional weights for each dimension (default: equal weights)
         """
         self.pass_threshold = pass_threshold
-        self.model = model or os.getenv("SMART_LLM", "llama-3.3-70b-versatile")
+        self.model = model
         self.weights = weights or {
             "content": 0.35,
             "tool": 0.25,

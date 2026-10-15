@@ -1,14 +1,12 @@
 """Critic agent for evaluating research reports."""
 
-from typing import Any, Dict, List, Optional
+from typing import List
 
 from app.agents.base import BaseAgent
 from app.models.research import (
     AgentType,
     ResearchTask,
-    ResearchReport,
-    CritiqueFeedback,
-    ResearchStatus
+    CritiqueFeedback
 )
 
 

@@ -2,7 +2,7 @@
 
 A self-correcting multi-agent research system that produces structured, cited reports from natural language queries.
 
-Three specialized agents (Researcher, Critic, Reviser) collaborate in a feedback loop: the Researcher plans search strategies and drafts reports from live web data, the Critic scores the draft and identifies weaknesses, and the Reviser rewrites based on feedback. The cycle continues until a quality threshold is met.
+Three specialized agents (Researcher, Critic, Reviser) collaborate in a feedback loop: the Researcher plans search strategies and drafts reports from live web data, the Critic scores the draft and identifies weaknesses, and the Reviser rewrites the draft once if it scores below the quality threshold (6.5/10).
 
 ---
 ## Architecture
@@ -34,7 +34,7 @@ flowchart TB
     end
 
     subgraph LLM["LLM (app/llm)"]
-        Groq[Groq Client\nLlama 3.3 70B]
+        LLM[OpenAI-compatible client\nMiniMax-M3 via gateway]
     end
 
     subgraph DB["Supabase (PostgreSQL)"]
@@ -60,15 +60,15 @@ flowchart TB
     Researcher --> Tavily
     Researcher --> DDG
     Researcher --> Wiki
-    Researcher --> Groq
-    Critic --> Groq
-    Reviser --> Groq
+    Researcher --> LLM
+    Critic --> LLM
+    Reviser --> LLM
     Adapter --> Coord
     Runner --> Grader
     Runner --> Adapter
 ```
 
-**Backend**: FastAPI, Python 3.11, Groq LLM (Qwen 2.5 / Llama 3.3 70B), Supabase (PostgreSQL + JSONB)
+**Backend**: FastAPI, Python 3.11, MiniMax-M3 via an OpenAI-compatible gateway (set by `LLM_MODEL`), Supabase (PostgreSQL + JSONB)
 
 **Frontend**: Next.js 16, React 19, Tailwind CSS v4, Framer Motion
 
@@ -89,7 +89,7 @@ flowchart TB
 4. Frontend tracks progress via WebSocket + HTTP polling
 5. Final report rendered with citations
 
-All LLM outputs are validated against Pydantic models using Groq's JSON mode, ensuring structured, parseable responses.
+All structured LLM outputs use JSON mode; the client strips any `<think>` blocks or code fences, validates against the Pydantic model, and retries once on invalid JSON. API errors and rate limits are retried twice with backoff.
 
 ---
 
@@ -99,13 +99,13 @@ All LLM outputs are validated against Pydantic models using Groq's JSON mode, en
 
 - Python 3.11+
 - Node.js 18+
-- API keys: [Groq](https://console.groq.com/) (free), [Supabase](https://supabase.com/) (free tier), [Tavily](https://tavily.com/) (optional, free tier)
+- API keys: an OpenAI-compatible LLM endpoint (`LLM_BASE_URL` + `LLM_API_KEY`), [Supabase](https://supabase.com/) (free tier), [Tavily](https://tavily.com/) (optional, free tier)
 
 ### Backend
 
 ```bash
 cp .env.example .env
-# Fill in GROQ_API_KEY, SUPABASE_URL, SUPABASE_KEY
+# Fill in SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, LLM_BASE_URL, LLM_API_KEY, LLM_MODEL, TAVILY_API_KEY
 
 python -m venv venv
 venv\Scripts\activate        # Windows
@@ -114,6 +114,20 @@ uvicorn app.api.routes:app --reload
 ```
 
 Backend runs at `http://localhost:8000`. API docs at `http://localhost:8000/docs`.
+
+Environment variables (see `.env.example`):
+
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `SUPABASE_URL` | yes | Supabase project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | yes | Backend DB access (falls back to `SUPABASE_KEY`) |
+| `LLM_BASE_URL` | yes | OpenAI-compatible endpoint, e.g. `https://your-gateway/v1` |
+| `LLM_API_KEY` | yes | Key for that endpoint |
+| `LLM_MODEL` | no | Model ID (default `MiniMax-M3`) |
+| `TAVILY_API_KEY` | no | Web search; without it only Wikipedia is used |
+| `CORS_ORIGINS` | prod | Comma-separated frontend origins (default `http://localhost:3000`) |
+
+`GET /health` does one tiny Supabase read; point an external cron at it to keep Render and Supabase awake.
 
 ### Frontend
 
@@ -163,7 +177,7 @@ Results are visualized in the frontend at `/evals`.
 │   ├── agents/          # Researcher, Critic, Reviser agents
 │   ├── api/             # FastAPI routes + eval endpoints
 │   ├── database/        # Supabase connection manager
-│   ├── llm/             # Groq client with structured JSON output
+│   ├── llm/             # OpenAI-compatible client with structured JSON output
 │   ├── models/          # Pydantic models (the data contract)
 │   ├── orchestrator/    # Coordinator state machine
 │   └── tools/           # Web search (Tavily/DDG) + Wikipedia
@@ -184,8 +198,8 @@ Results are visualized in the frontend at `/evals`.
 
 | Choice | Reasoning |
 |--------|-----------|
-| Groq over OpenAI | Sub-second inference for 70B models. 4-6 LLM calls per request — latency compounds. |
+| OpenAI-compatible client | Model and provider are env vars (`LLM_BASE_URL`, `LLM_MODEL`); swap models without code changes. |
 | JSONB document store | Entire task state in one row. Avoids complex joins for write-heavy, read-once workload. |
-| Pydantic for LLM output | `model_validate_json()` enforces schema on every LLM response. No format hallucinations reach the user. |
-| Background tasks | HTTP 202 pattern — user gets instant response, research runs async. |
+| Pydantic for LLM output | `model_validate()` enforces schema on every LLM response. No format hallucinations reach the user. |
+| Background tasks | HTTP 202 pattern — user gets instant response, research runs async (asyncio task, cancellable via `DELETE /research/{id}`). Tasks interrupted by a restart are marked failed on startup. |
 | Separate logs table | Agent logs can grow to megabytes. Keeping them out of the main task row avoids bloated reads. |

@@ -3,11 +3,9 @@ Supabase Database Manager.
 Optimized for Document-Oriented Architecture (JSONB).
 """
 
-import json
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
-import uuid
+from typing import Optional
 
 from supabase import create_client, Client
 from app.config import settings
@@ -47,6 +45,25 @@ class SupabaseManager:
     def _ensure_initialized(self):
         if not self._initialized:
             raise RuntimeError("DB Not Initialized.")
+
+    async def ping(self):
+        """Tiny read used by /health (raises on failure)."""
+        self._ensure_initialized()
+        self.client.table("research_tasks").select("id").limit(1).execute()
+
+    async def fail_stale_tasks(self) -> int:
+        """Marks tasks left running by a previous process as failed. Call once at startup."""
+        self._ensure_initialized()
+        active = [s.value for s in ResearchStatus if s not in (ResearchStatus.COMPLETED, ResearchStatus.FAILED)]
+        try:
+            res = self.client.table("research_tasks").update({
+                "status": ResearchStatus.FAILED.value,
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }).in_("status", active).execute()
+            return len(res.data or [])
+        except Exception as e:
+            logger.error(f"Fail Stale Tasks Failed: {e}")
+            return 0
 
     # --- TASK OPERATIONS ---
 
@@ -121,7 +138,7 @@ class SupabaseManager:
             return None
 
     async def update_task_status(self, task_id: str, status: ResearchStatus):
-        """Simple status update. Sets completed_at when status is COMPLETED."""
+        """Status update. Sets completed_at when COMPLETED. A FAILED task is never changed again."""
         self._ensure_initialized()
         try:
             update_data = {
@@ -132,7 +149,10 @@ class SupabaseManager:
             if status == ResearchStatus.COMPLETED:
                 update_data["completed_at"] = datetime.now(timezone.utc).isoformat()
             
-            self.client.table("research_tasks").update(update_data).eq("id", task_id).execute()
+            self.client.table("research_tasks").update(update_data)\
+                .eq("id", task_id)\
+                .neq("status", ResearchStatus.FAILED.value)\
+                .execute()
         except Exception as e:
             logger.error(f"Status Update Failed: {e}")
 
