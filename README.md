@@ -126,7 +126,9 @@ Environment variables (see `.env.example`):
 | `CORS_ORIGINS` | prod | Comma-separated frontend origins (default `http://localhost:3000`) |
 | `EVAL_AGENT_MODELS` | no | Eval agent model allowlist, first = default (default `MiniMax-M3,MiniMax-M2.5-highspeed`) |
 | `EVAL_JUDGE_MODEL` | no | Eval judge model, never used as an agent (default `MiniMax-M2.7`) |
-| `EVAL_RUN_KEY` | no | Key required to start/cancel eval runs; unset = runs disabled. Never commit it |
+| `STARTUP_SWEEP` | no | Mark work left running by a previous process as failed on startup (default `true`). Set `false` on a local backend that shares the production database |
+| `EVAL_CONCURRENCY` | no | Eval cases run in parallel (default `3`) |
+| `EVAL_COOLDOWN_HOURS` | no | Minimum hours between two eval runs of the same model (default `6`) |
 
 `GET /health` does one tiny Supabase read; point an external cron at it to keep Render and Supabase awake.
 

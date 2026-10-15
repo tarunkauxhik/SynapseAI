@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from app.orchestrator.coordinator import ResearchCoordinator
 from app.models.research import ResearchQuery, ResearchStatus
 from app.database.connection import db_manager
+from app.config import settings
 from app.api.eval_routes import router as eval_router
 
 # --- Pydantic Models ---
@@ -129,7 +130,10 @@ async def get_coordinator() -> ResearchCoordinator:
 async def startup_event():
     # Initialize DB pools, etc.
     coordinator = await get_coordinator()
-    # Background work dies with the process (e.g. a Render restart), so fail leftovers
+    # Background work dies with the process (e.g. a Render restart), so fail leftovers.
+    # Skipped when STARTUP_SWEEP=false: a second backend on the same DB must not fail live work.
+    if not settings.startup_sweep:
+        return
     stale = await coordinator.db.fail_stale_tasks()
     stale_evals = await coordinator.db.fail_stale_eval_runs()
     if stale or stale_evals:

@@ -3,9 +3,11 @@ Supabase Database Manager.
 Optimized for Document-Oriented Architecture (JSONB).
 """
 
+import asyncio
+import functools
 import logging
 from datetime import datetime, timezone
-from typing import Optional
+from typing import List, Optional
 
 from supabase import create_client, Client
 from app.config import settings
@@ -20,6 +22,15 @@ from app.models.research import (
 
 logger = logging.getLogger(__name__)
 
+
+def _threaded(fn):
+    """Runs a blocking Supabase call in a worker thread, so it doesn't freeze the event loop
+    (the sync client takes ~0.2-1s per call). Callers still `await` it as before."""
+    @functools.wraps(fn)
+    async def wrapper(*args, **kwargs):
+        return await asyncio.to_thread(fn, *args, **kwargs)
+    return wrapper
+
 class SupabaseManager:
     """
     Manages Supabase operations.
@@ -31,7 +42,9 @@ class SupabaseManager:
         self._initialized = False
     
     async def initialize(self) -> bool:
-        """Initialize the client."""
+        """Initialize the client (once; every eval case's coordinator calls this)."""
+        if self._initialized:
+            return True
         try:
             key = settings.supabase_service_role_key or settings.supabase_key
             self.client = create_client(settings.supabase_url, key)
@@ -46,12 +59,14 @@ class SupabaseManager:
         if not self._initialized:
             raise RuntimeError("DB Not Initialized.")
 
-    async def ping(self):
+    @_threaded
+    def ping(self):
         """Tiny read used by /health (raises on failure)."""
         self._ensure_initialized()
         self.client.table("research_tasks").select("id").limit(1).execute()
 
-    async def fail_stale_tasks(self) -> int:
+    @_threaded
+    def fail_stale_tasks(self) -> int:
         """Marks tasks left running by a previous process as failed. Call once at startup."""
         self._ensure_initialized()
         active = [s.value for s in ResearchStatus if s not in (ResearchStatus.COMPLETED, ResearchStatus.FAILED)]
@@ -67,7 +82,8 @@ class SupabaseManager:
 
     # --- TASK OPERATIONS ---
 
-    async def create_task(self, task: ResearchTask) -> Optional[str]:
+    @_threaded
+    def create_task(self, task: ResearchTask) -> Optional[str]:
         """
         Creates a new task. Returns the Task ID.
         """
@@ -99,7 +115,8 @@ class SupabaseManager:
             logger.error(f"Create Task Exception: {e}") 
             return None
 
-    async def get_task(self, task_id: str) -> Optional[ResearchTask]:
+    @_threaded
+    def get_task(self, task_id: str) -> Optional[ResearchTask]:
         try:
             # Fetch task from research_tasks table
             res = self.client.table("research_tasks")\
@@ -141,20 +158,23 @@ class SupabaseManager:
 
     # --- EVAL RUNS (table: eval_runs) ---
 
-    async def create_eval_run(self, data: dict) -> str:
+    @_threaded
+    def create_eval_run(self, data: dict) -> str:
         """Inserts a run (status 'running') and returns its id. Raises on failure."""
         self._ensure_initialized()
         res = self.client.table("eval_runs").insert(data).execute()
         return res.data[0]["id"]
 
-    async def update_eval_run(self, run_id: str, data: dict):
+    @_threaded
+    def update_eval_run(self, run_id: str, data: dict):
         self._ensure_initialized()
         try:
             self.client.table("eval_runs").update(data).eq("id", run_id).execute()
         except Exception as e:
             logger.error(f"Update Eval Run Failed: {e}")
 
-    async def latest_eval_run(self, agent_model: str) -> Optional[dict]:
+    @_threaded
+    def latest_eval_run(self, agent_model: str) -> Optional[dict]:
         self._ensure_initialized()
         res = self.client.table("eval_runs").select("*")\
             .eq("agent_model", agent_model)\
@@ -163,7 +183,8 @@ class SupabaseManager:
             .execute()
         return res.data[0] if res.data else None
 
-    async def fail_stale_eval_runs(self) -> int:
+    @_threaded
+    def fail_stale_eval_runs(self) -> int:
         """Marks eval runs left 'running' by a previous process as failed. Call once at startup."""
         self._ensure_initialized()
         try:
@@ -177,7 +198,8 @@ class SupabaseManager:
             logger.error(f"Fail Stale Eval Runs Failed (is the eval_runs table created?): {e}")
             return 0
 
-    async def update_task_status(self, task_id: str, status: ResearchStatus):
+    @_threaded
+    def update_task_status(self, task_id: str, status: ResearchStatus):
         """Status update. Sets completed_at when COMPLETED. A FAILED task is never changed again."""
         self._ensure_initialized()
         try:
@@ -196,7 +218,8 @@ class SupabaseManager:
         except Exception as e:
             logger.error(f"Status Update Failed: {e}")
 
-    async def save_raw_search_results(self, task_id: str, results: list):
+    @_threaded
+    def save_raw_search_results(self, task_id: str, results: list):
         """Saves the raw search results to the database."""
         self._ensure_initialized()
         try:
@@ -210,30 +233,25 @@ class SupabaseManager:
         except Exception as e:
             logger.error(f"Save Raw Search Results Failed: {e}")
 
-    async def increment_revision_count(self, task_id: str):
-        """Increments the revision_count by 1."""
+    @_threaded
+    def set_revision_count(self, task_id: str, count: int):
+        """Saves the revision count (the coordinator holds the current value)."""
         self._ensure_initialized()
         try:
-            # Fetch current count
-            task = await self.get_task(task_id)
-            if not task:
-                return
-            
-            new_count = task.revision_count + 1
-            
             self.client.table("research_tasks").update({
-                "revision_count": new_count,
+                "revision_count": count,
                 "updated_at": datetime.now(timezone.utc).isoformat()
             }).eq("id", task_id).execute()
-            
-            logger.info(f"Revision count incremented to {new_count} for Task {task_id}")
-            
+
+            logger.info(f"Revision count set to {count} for Task {task_id}")
+
         except Exception as e:
-            logger.error(f"Increment Revision Count Failed: {e}")
+            logger.error(f"Set Revision Count Failed: {e}")
 
     # --- STATE UPDATES (Report & Feedback) ---
     
-    async def save_report(self, task_id: str, report: ResearchReport):
+    @_threaded
+    def save_report(self, task_id: str, report: ResearchReport):
         """
         Updates the 'current_report' JSONB column.
         """
@@ -252,7 +270,8 @@ class SupabaseManager:
         except Exception as e:
             logger.error(f"Save Report Failed: {e}")
 
-    async def save_plan(self, task_id: str, plan: ResearchPlan):
+    @_threaded
+    def save_plan(self, task_id: str, plan: ResearchPlan):
         """
         Updates the 'plan' JSONB column.
         """
@@ -270,25 +289,14 @@ class SupabaseManager:
         except Exception as e:
             logger.error(f"Save Plan Failed: {e}")
 
-    async def save_feedback(self, task_id: str, feedback: CritiqueFeedback):
+    @_threaded
+    def save_feedback(self, task_id: str, history: List[CritiqueFeedback]):
         """
-        Appends feedback to the 'feedback_history' array.
-        Uses a read-modify-write approach (Simpler for this scale).
+        Saves the full 'feedback_history' array (the coordinator holds the current list).
         """
         self._ensure_initialized()
         try:
-            # 1. Fetch current history (Optimistic locking is overkill here)
-            # In a high-concurrency app, use a Postgres RPC function instead.
-            task = await self.get_task(task_id)
-            if not task:
-                return
-
-            # 2. Append new feedback
-            current_history = task.feedback_history
-            current_history.append(feedback)
-            
-            # 3. Update DB
-            history_json = [f.model_dump(mode='json') for f in current_history]
+            history_json = [f.model_dump(mode='json') for f in history]
             
             self.client.table("research_tasks").update({
                 "feedback_history": history_json,
@@ -302,7 +310,8 @@ class SupabaseManager:
 
     # --- LOGGING ---
 
-    async def log_agent_message(self, task_id: str, message: AgentMessage):
+    @_threaded
+    def log_agent_message(self, task_id: str, message: AgentMessage):
         """
         Inserts into the separate 'task_logs' table.
         """

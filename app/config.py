@@ -28,10 +28,17 @@ class Settings(BaseSettings):
     # Research Tools API Keys
     tavily_api_key: Optional[str] = Field(default=None)  # For web search
 
-    # Evals: comma-separated agent model allowlist (first = default), the judge, and the run key
+    # Mark tasks/eval runs left running by a previous process as failed on startup.
+    # Set false for any backend that shares the database with production (e.g. local dev),
+    # or its restarts will fail production's live work.
+    startup_sweep: bool = Field(default=True)
+
+    # Evals: comma-separated agent model allowlist (first = default), the judge,
+    # cases run at once, and the minimum gap between two runs of the same model
     eval_agent_models: str = Field(default="MiniMax-M3,MiniMax-M2.5-highspeed")
     eval_judge_model: str = Field(default="MiniMax-M2.7")
-    eval_run_key: Optional[str] = Field(default=None)  # unset = eval runs disabled
+    eval_concurrency: int = Field(default=3, ge=1)
+    eval_cooldown_hours: float = Field(default=6, ge=0)
 
     @property
     def eval_agent_model_list(self) -> list:

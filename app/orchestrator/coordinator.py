@@ -178,9 +178,9 @@ class ResearchCoordinator:
                 # Critic reads task.current_report
                 feedback = await self.critic.process(task)
                 
-                # Save feedback & Update local state
-                await self.db.save_feedback(task.id, feedback)
+                # Update local state & save it
                 task.feedback_history.append(feedback)
+                await self.db.save_feedback(task.id, task.feedback_history)
                 
                 await self._log(task.id, AgentType.CRITIC, f"Round {loop_count+1} Score: {feedback.overall_score}/10")
 
@@ -200,9 +200,9 @@ class ResearchCoordinator:
                 await self.db.save_report(task.id, new_report)
                 task.current_report = new_report
                 
-                # Increment revision count in database
-                await self.db.increment_revision_count(task.id)
+                # Increment revision count and save it
                 task.revision_count += 1
+                await self.db.set_revision_count(task.id, task.revision_count)
                 await self._log(task.id, AgentType.REVISER, f"Revision {task.revision_count} completed.")
                 
                 loop_count += 1

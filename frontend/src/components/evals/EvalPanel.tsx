@@ -5,17 +5,13 @@ import Link from 'next/link';
 import type { DatasetInfo, EvalConfig, EvalResult, EvalRun } from '@/lib/types';
 import { SiteHeader, pillClass } from '@/components/SiteHeader';
 import { cn } from '@/lib/api';
-import { AlertCircle, ArrowUpRight, CheckCircle2, ChevronDown, ChevronUp, KeyRound, Link2, Loader2, Play, Square, Wrench, XCircle, Zap } from 'lucide-react';
+import { AlertCircle, ArrowUpRight, CheckCircle2, ChevronDown, ChevronUp, Clock, Link2, Loader2, Play, Wrench, XCircle, Zap } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-const KEY_STORAGE = 'synapse-eval-key';
 
-// sessionStorage can throw (private mode, blocked storage): treat that as "no key saved"
-function loadKey(): string {
-    try { return sessionStorage.getItem(KEY_STORAGE) || ''; } catch { return ''; }
-}
-function saveKey(key: string) {
-    try { if (key) sessionStorage.setItem(KEY_STORAGE, key); else sessionStorage.removeItem(KEY_STORAGE); } catch { /* ignore */ }
+function formatWait(ms: number): string {
+    const minutes = Math.max(1, Math.ceil(ms / 60000));
+    return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
 async function errorDetail(res: Response): Promise<string> {
@@ -179,7 +175,7 @@ function EvalResultCard({ result }: { result: EvalResult }) {
     );
 }
 
-function RunColumn({ model, run, onStop }: { model: string; run: EvalRun | null; onStop: (run: EvalRun) => void }) {
+function RunColumn({ model, run }: { model: string; run: EvalRun | null }) {
     const summary = run?.summary ?? {};
     const done = run?.results.length ?? 0;
 
@@ -221,14 +217,7 @@ function RunColumn({ model, run, onStop }: { model: string; run: EvalRun | null;
                     {run.status === 'running' ? (
                         <div className="space-y-3">
                             <ProgressBar value={done} total={run.total_cases} label="Cases completed" />
-                            <p className="text-xs text-gray-500">Each case runs the full research pipeline (about 1–2 min) before it is judged.</p>
-                            <button
-                                type="button"
-                                onClick={() => onStop(run)}
-                                className="px-4 py-2 bg-rose-600/20 text-rose-300 border border-rose-600/40 hover:bg-rose-600/30 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
-                            >
-                                <Square className="w-3.5 h-3.5 fill-current" /> Stop run
-                            </button>
+                            <p className="text-xs text-gray-500">Cases run in parallel; each runs the full research pipeline and is judged as soon as it finishes.</p>
                         </div>
                     ) : done > 0 && (
                         <ProgressBar value={summary.passed ?? 0} total={done} label="Passed" />
@@ -256,13 +245,21 @@ export function EvalPanel() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
-    const [askKey, setAskKey] = useState(false);
-    const [keyInput, setKeyInput] = useState('');
+    const [nextRunAt, setNextRunAt] = useState<Record<string, string | null>>({});
+    const [now, setNow] = useState(() => Date.now());
 
     const loadRuns = useCallback(async () => {
         const res = await fetch(`${API_URL}/eval/runs/latest`);
         if (!res.ok) throw new Error(await errorDetail(res));
-        setRuns((await res.json()).runs);
+        const data = await res.json();
+        setRuns(data.runs);
+        setNextRunAt(data.next_run_at || {});
+    }, []);
+
+    // Keep the cooldown countdown current
+    useEffect(() => {
+        const timer = setInterval(() => setNow(Date.now()), 30000);
+        return () => clearInterval(timer);
     }, []);
 
     useEffect(() => {
@@ -294,21 +291,16 @@ export function EvalPanel() {
 
     const dataset = datasets[0];
 
-    const startRun = async (key: string) => {
-        if (!key) { setAskKey(true); return; }
+    const startRun = async () => {
         setBusy(true);
         setError(null);
         try {
             const res = await fetch(`${API_URL}/eval/run`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-Eval-Key': key },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ dataset: dataset?.file, agent_model: model }),
             });
-            if (res.status === 401) { saveKey(''); setAskKey(true); setError('That key was not accepted.'); return; }
-            if (!res.ok) { setError(await errorDetail(res)); return; }
-            saveKey(key);
-            setAskKey(false);
-            setKeyInput('');
+            if (!res.ok) setError(await errorDetail(res));
             await loadRuns();
         } catch {
             setError("Couldn't reach the backend.");
@@ -317,15 +309,10 @@ export function EvalPanel() {
         }
     };
 
-    const stopRun = async (run: EvalRun) => {
-        const key = loadKey();
-        if (!key) { setAskKey(true); setError('Enter the eval key to stop a run.'); return; }
-        const res = await fetch(`${API_URL}/eval/runs/${run.id}`, { method: 'DELETE', headers: { 'X-Eval-Key': key } }).catch(() => null);
-        if (!res?.ok) setError(res ? await errorDetail(res) : "Couldn't reach the backend.");
-        setTimeout(() => loadRuns().catch(() => { }), 1000);
-    };
-
-    const runDisabled = busy || anyRunning || !config?.run_enabled || !dataset;
+    // Cooldown for the selected model (the server enforces it too, with a 429)
+    const waitMs = nextRunAt[model] ? new Date(nextRunAt[model]!).getTime() - now : 0;
+    const coolingDown = waitMs > 0;
+    const runDisabled = busy || anyRunning || coolingDown || !dataset;
 
     return (
         <>
@@ -368,7 +355,7 @@ export function EvalPanel() {
                     </div>
                     <button
                         type="button"
-                        onClick={() => startRun(loadKey())}
+                        onClick={startRun}
                         disabled={runDisabled}
                         className="sm:w-auto px-6 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-blue-600"
                     >
@@ -376,39 +363,12 @@ export function EvalPanel() {
                     </button>
                 </div>
 
-                {config && !config.run_enabled && (
-                    <p className="text-sm text-gray-500">Starting new runs is disabled on this server. Showing the latest saved results.</p>
+                {coolingDown && !anyRunning && (
+                    <p className="flex items-center gap-2 text-sm text-gray-400">
+                        <Clock className="w-4 h-4 shrink-0" />
+                        Next run for <span className="font-mono text-gray-300">{model}</span> available in {formatWait(waitMs)}
+                    </p>
                 )}
-
-                {askKey && (
-                    <form
-                        className="glass-panel rounded-2xl p-5 flex flex-col sm:flex-row gap-3 sm:items-center"
-                        onSubmit={(e) => { e.preventDefault(); startRun(keyInput.trim()); }}
-                    >
-                        <label htmlFor="eval-key" className="flex items-center gap-2 text-sm text-gray-300 shrink-0">
-                            <KeyRound className="w-4 h-4 text-gray-400" /> Eval key
-                        </label>
-                        <input
-                            id="eval-key"
-                            type="password"
-                            autoComplete="off"
-                            value={keyInput}
-                            onChange={(e) => setKeyInput(e.target.value)}
-                            placeholder="Required to start or stop runs"
-                            className="flex-1 bg-black/40 border border-white/10 text-gray-200 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500/50 outline-none"
-                            autoFocus
-                        />
-                        <div className="flex gap-2">
-                            <button type="submit" disabled={!keyInput.trim() || busy} className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-                                Start
-                            </button>
-                            <button type="button" onClick={() => { setAskKey(false); setError(null); }} className="px-4 py-2.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-colors">
-                                Cancel
-                            </button>
-                        </div>
-                    </form>
-                )}
-
                 {error && (
                     <div role="alert" className="flex items-start gap-2 bg-rose-500/10 border border-rose-500/20 rounded-xl p-4 text-sm text-rose-300">
                         <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" /> {error}
@@ -421,7 +381,7 @@ export function EvalPanel() {
                 ) : config && (
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
                         {config.agent_models.map(m => (
-                            <RunColumn key={m} model={m} run={runs[m] ?? null} onStop={stopRun} />
+                            <RunColumn key={m} model={m} run={runs[m] ?? null} />
                         ))}
                     </div>
                 )}

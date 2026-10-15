@@ -51,7 +51,7 @@ export interface EvalRun {
 export interface EvalConfig {
     agent_models: string[];
     judge_model: string;
-    run_enabled: boolean;
+    cooldown_hours: number;
 }
 
 export interface DatasetInfo {

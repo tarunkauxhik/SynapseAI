@@ -25,7 +25,7 @@ A typical task makes 4 LLM calls and takes about 100s on MiniMax-M3. Revising is
 
 ## Reliability
 - `DELETE /research/{id}` cancels the asyncio task. `update_task_status` never overwrites a `failed` status.
-- On startup, `fail_stale_tasks` marks every non-terminal task as failed, because work in memory dies with a Render restart.
+- On startup, `fail_stale_tasks` and `fail_stale_eval_runs` mark every non-terminal task and eval run as failed, because work in memory dies with a Render restart. Local and production share one Supabase project, so any local backend must run with `STARTUP_SWEEP=false`; otherwise its restarts fail production's live work (this happened on 2026-10-15).
 - `ground_references` ([app/agents/base.py](app/agents/base.py)) keeps only references whose URL was gathered, then renumbers them 1..n and remaps `source_ids` and inline `[n]` citations. It runs on the draft, matching against the gathered sources, and on the revision, which keeps the draft's list (the Reviser is told to return `references: []`). Self-check: `python -m app.agents.base`.
 - `GET /health` does one tiny Supabase read and returns 503 if it fails. An external cron pings it every 14 minutes, 9 AM to 10 PM IST.
 
@@ -37,8 +37,9 @@ A typical task makes 4 LLM calls and takes about 100s on MiniMax-M3. Revising is
   - `tools/`: Tavily, Wikipedia (aiohttp, one session per call, 30s timeout).
   - `models/`.
 - `evals/` + [app/api/eval_routes.py](app/api/eval_routes.py): eval harness.
-  - `POST /eval/run` needs the `X-Eval-Key` header (`EVAL_RUN_KEY`; unset = disabled). It starts one background run at a time (409 if one is going) and saves results to the Supabase `eval_runs` table after each case.
-  - `GET /eval/runs/latest` returns the latest run per agent model. `DELETE /eval/runs/{id}` (key) cancels.
+  - `POST /eval/run` starts one background run at a time (409 if one is going), and each model has a cooldown of `EVAL_COOLDOWN_HOURS` from its last run's start (429 with the time left).
+  - Cases run in parallel (`EVAL_CONCURRENCY`, default 3), one adapter per case. Each case is judged as soon as it finishes, and results are saved to the Supabase `eval_runs` table after each case. Runs can't be cancelled.
+  - `GET /eval/runs/latest` returns the latest run per agent model plus `next_run_at`.
   - Agent models come from the `EVAL_AGENT_MODELS` allowlist (the judge is filtered out). The judge is `EVAL_JUDGE_MODEL` (default MiniMax-M2.7).
   - The agent model is set via the `model_override` ContextVar in [app/llm/client.py](app/llm/client.py), inside the eval task only, so production research keeps using `LLM_MODEL`.
   - The judge gets the full report as readable text. The adapter returns that text, and `sources_used` = the report's reference URLs.
@@ -47,12 +48,12 @@ A typical task makes 4 LLM calls and takes about 100s on MiniMax-M3. Revising is
   - `src/lib/api.ts`: reads `NEXT_PUBLIC_API_URL`, which is inlined at build time.
   - `components/SiteHeader.tsx`: the shared header (logo plus pill actions) on every page.
   - `app/research/[taskId]/page.tsx`: polling, not-found, failed/cancelled banner, Cancel button. Logs collapse once the task is done.
-  - `components/evals/EvalPanel.tsx`: latest run per model side by side. It asks for the eval key on Run and keeps it in sessionStorage.
+  - `components/evals/EvalPanel.tsx`: latest run per model side by side. It shows the cooldown ("Next run available in Xh Ym") and disables Run while a run is going or a model is cooling down.
   - `components/ProgressTracker.tsx`: shows `status.logs` (history) plus live WebSocket lines not yet polled, deduplicated on timestamp + message. The stage comes from the parent page's polling.
 - `supabase_schema_fixed.sql`: the DB schema.
 
 ## Env vars (names only; never print `.env` values)
-`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (or `SUPABASE_KEY`; the service role key is required for `eval_runs`, which has RLS with no policies), `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`, `TAVILY_API_KEY`, `CORS_ORIGINS`, `EVAL_AGENT_MODELS`, `EVAL_JUDGE_MODEL`, `EVAL_RUN_KEY` (never commit it).
+`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (or `SUPABASE_KEY`; the service role key is required for `eval_runs`, which has RLS with no policies), `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`, `TAVILY_API_KEY`, `CORS_ORIGINS`, `EVAL_AGENT_MODELS`, `EVAL_JUDGE_MODEL`, `EVAL_CONCURRENCY`, `EVAL_COOLDOWN_HOURS`.
 
 ## Run locally
 - Backend: `pip install -r requirements.txt && uvicorn app.api.routes:app --reload` (port 8000).
@@ -62,4 +63,4 @@ A typical task makes 4 LLM calls and takes about 100s on MiniMax-M3. Revising is
 - Only the first planned query is searched.
 - Wikipedia results are snippets only.
 - Web search is Tavily only; with no key or no results the task uses Wikipedia only (a warning is logged). The DuckDuckGo fallback was removed because DDG blocks the aiohttp user agent.
-- The Supabase client is synchronous and briefly blocks the event loop on each DB call.
+- The Supabase client is synchronous; every `SupabaseManager` method runs in a worker thread (`@_threaded`), so it never blocks the event loop. Each call still takes ~0.2-1s (about 13s per research task).
